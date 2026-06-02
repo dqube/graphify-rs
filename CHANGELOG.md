@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-06-02
+
+### Changed
+
+- **Default output moved to `~/.graphify-rs/<name>-<hash>/`** — no longer writes `graphify-out/` into the project directory. Path is computed from project root's directory name + 8-char hash. Explicit `--output` still works as before.
+- **Install hooks use dynamic paths** — CLAUDE.md, AGENTS.md, and hook commands now reference the computed output directory instead of hardcoded `graphify-out/`. Shell paths are properly quoted for spaces.
+- **Deduplicated install templates** — merged `claude_md_section`/`agents_md_section` into single `graph_md_section()` function.
+
 ## [0.5.3] - 2026-05-28
 
 ### Added
@@ -232,6 +240,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hook integration (post-commit, post-checkout)
 - CLI with 21 subcommands via clap derive
 
+[0.6.0]: https://github.com/TtTRz/graphify-rs/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/TtTRz/graphify-rs/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/TtTRz/graphify-rs/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/TtTRz/graphify-rs/compare/v0.5.0...v0.5.1
