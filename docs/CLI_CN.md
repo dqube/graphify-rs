@@ -51,7 +51,7 @@ graphify-rs -q -j 2 serve               # 静默模式，2 个线程
 | 参数 | 缩写 | 类型 | 默认值 | 说明 |
 |------|------|------|--------|------|
 | `--path <PATH>` | `-p` | `String` | `"."` | 扫描源文件的根目录。 |
-| `--output <DIR>` | `-o` | `String` | `"graphify-out"` | 所有生成文件的输出目录。 |
+| `--output <DIR>` | `-o` | `String` | `~/.graphify-rs/<name>-<hash>/` | 所有生成文件的输出目录。 |
 | `--no-llm` | | `bool` | `false` | 跳过 LLM 语义提取（第二遍），仅运行 AST 提取。 |
 | `--code-only` | | `bool` | `false` | 仅处理代码文件，跳过文档和论文。 |
 | `--update` | | `bool` | `false` | 增量重建：仅重新提取自上次构建以来新增/修改的文件。 |
@@ -109,7 +109,7 @@ graphify-rs build --update --code-only --no-llm --format json,report
 | `<QUESTION>`（位置参数） | `String` | *必填* | 自然语言查询问题。 |
 | `--dfs` | `bool` | `false` | 使用深度优先搜索代替广度优先搜索进行遍历。 |
 | `--budget <N>` | `usize` | `2000` | 输出文本的最大 token 预算。 |
-| `--graph <PATH>` | `String` | `"graphify-out/graph.json"` | 图谱 JSON 文件路径。 |
+| `--graph <PATH>` | `String` | `~/.graphify-rs/<name>-<hash>/graph.json` | 图谱 JSON 文件路径。 |
 
 #### 示例
 
@@ -158,7 +158,7 @@ graphify-rs diff v1/graph.json v2/graph.json --output json
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `<GRAPH>`（位置参数） | `String` | `"graphify-out/graph.json"` | 图谱 JSON 文件路径。 |
+| `<GRAPH>`（位置参数） | `String` | `~/.graphify-rs/<name>-<hash>/graph.json` | 图谱 JSON 文件路径。 |
 
 #### 示例
 
@@ -181,7 +181,7 @@ graphify-rs stats /path/to/graph.json
 | 参数 | 缩写 | 类型 | 默认值 | 说明 |
 |------|------|------|--------|------|
 | `--path <PATH>` | `-p` | `String` | `"."` | 要监视的目录。 |
-| `--output <DIR>` | `-o` | `String` | `"graphify-out"` | 图谱文件输出目录。 |
+| `--output <DIR>` | `-o` | `String` | `~/.graphify-rs/<name>-<hash>/` | 图谱文件输出目录。 |
 
 #### 示例
 
@@ -205,7 +205,7 @@ graphify-rs watch --path src --output my-graph
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `--graph <PATH>` | `String` | `"graphify-out/graph.json"` | 要提供服务的图谱 JSON 文件路径。 |
+| `--graph <PATH>` | `String` | `~/.graphify-rs/<name>-<hash>/graph.json` | 要提供服务的图谱 JSON 文件路径。 |
 
 #### 可用的 MCP 工具
 
@@ -248,7 +248,7 @@ graphify-rs serve --graph /path/to/graph.json
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `<URL>`（位置参数） | `String` | *必填* | 要抓取内容的 URL。 |
-| `--output <DIR>` | `-o` | `String` | `"graphify-out"` | 输出目录。 |
+| `--output <DIR>` | `-o` | `String` | `~/.graphify-rs/<name>-<hash>/` | 输出目录。 |
 
 #### 示例
 
@@ -453,8 +453,8 @@ graphify-rs init
 # graphify-rs configuration
 # These values serve as defaults and can be overridden by CLI flags.
 
-# Output directory for graph files
-# output = "graphify-out"
+# Output directory for graph files (default: ~/.graphify-rs/<name>-<hash>/)
+# output = "~/.graphify-rs/my-project-a1b2c3d4"
 
 # Disable LLM-based semantic extraction
 # no_llm = false
@@ -505,7 +505,7 @@ graphify-rs completions powershell > graphify-rs.ps1
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `<GRAPH_PATH>`（位置参数） | `String` | `"graphify-out/graph.json"` | 图谱 JSON 文件路径。 |
+| `<GRAPH_PATH>`（位置参数） | `String` | `~/.graphify-rs/<name>-<hash>/graph.json` | 图谱 JSON 文件路径。 |
 
 #### 示例
 
@@ -531,7 +531,7 @@ graphify-rs benchmark /path/to/graph.json
 | `--answer <TEXT>` | `String` | *必填* | 生成的回答。 |
 | `--type <TYPE>` | `String` | `"query"` | 结果类型标识。 |
 | `--nodes <ID>...` | `Vec<String>` | `[]` | 相关的节点 ID（可多次指定）。 |
-| `--memory-dir <DIR>` | `String` | `"graphify-out/memory"` | 保存结果的目录。 |
+| `--memory-dir <DIR>` | `String` | `~/.graphify-rs/<name>-<hash>/memory` | 保存结果的目录。 |
 
 #### 示例
 
@@ -560,7 +560,7 @@ graphify-rs save-result \
 
 | 字段 | 类型 | 默认值 | CLI 覆盖参数 | 说明 |
 |------|------|--------|-------------|------|
-| `output` | `String` | `"graphify-out"` | `--output` | 图谱文件输出目录。 |
+| `output` | `String` | `~/.graphify-rs/<name>-<hash>/` | `--output` | 图谱文件输出目录。 |
 | `no_llm` | `bool` | `false` | `--no-llm` | 禁用基于 LLM 的语义提取。 |
 | `code_only` | `bool` | `false` | `--code-only` | 仅处理代码文件（跳过文档/论文）。 |
 | `formats` | `String[]` | `[]`（所有格式） | `--format` | 要生成的导出格式。 |
@@ -613,7 +613,7 @@ openai_compatible_base_url = "http://localhost:8000/v1"
 3. **内置默认值**在 CLI 和配置文件都未指定时使用。
 
 具体的合并规则：
-- `output`：如果 CLI 值与内置默认值（`"graphify-out"`）不同则使用 CLI 值；否则回退到配置文件。
+- `output`：如果 CLI 值与内置默认值（`~/.graphify-rs/<name>-<hash>/`）不同则使用 CLI 值；否则回退到配置文件。
 - `no_llm`：如果 CLI 参数**或**配置文件中**任一**为 `true` 则为 `true`（OR 逻辑）。
 - `code_only`：如果 CLI 参数**或**配置文件中**任一**为 `true` 则为 `true`（OR 逻辑）。
 - `formats`：如果 CLI 值非空则使用 CLI 值；否则回退到配置文件。空值表示所有格式。
@@ -729,10 +729,10 @@ graphify-rs build
 
 安装后，智能体遵循以下规则（注入到 `CLAUDE.md` 或 `AGENTS.md`）：
 
-1. **在回答架构或代码库问题之前** — 读取 `graphify-out/GRAPH_REPORT.md` 了解 God 节点和社区结构。
-2. **如果 `graphify-out/wiki/index.md` 存在** — 浏览 wiki 而不是读取原始文件。
+1. **在回答架构或代码库问题之前** — 读取 `GRAPH_REPORT.md` 了解 God 节点和社区结构。
+2. **如果 `wiki/index.md` 存在** — 浏览 wiki 而不是读取原始文件。
 3. **对于具体问题** — 运行 `graphify-rs query "<问题>"` 获取相关子图上下文。
-4. **修改代码文件后** — 运行 `graphify-rs build --path . --output graphify-out --no-llm --update` 保持图谱最新（快速，仅 AST，约 2-5 秒）。
+4. **修改代码文件后** — 运行 `graphify-rs build --path . --no-llm --update` 保持图谱最新（快速，仅 AST，约 2-5 秒）。
 
 `PreToolUse` 钩子会在智能体使用 `Glob` 或 `Grep` 工具（Claude/CodeBuddy）或 `Bash`（Codex）时自动触发，注入提醒智能体先查看图谱的消息。
 
@@ -749,7 +749,7 @@ graphify-rs build
   "mcpServers": {
     "graphify": {
       "command": "graphify-rs",
-      "args": ["serve", "--graph", "graphify-out/graph.json"]
+      "args": ["serve"]
     }
   }
 }
@@ -764,7 +764,7 @@ graphify-rs build
   "mcpServers": {
     "graphify": {
       "command": "graphify-rs",
-      "args": ["serve", "--graph", "graphify-out/graph.json"]
+      "args": ["serve"]
     }
   }
 }

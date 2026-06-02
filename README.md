@@ -40,9 +40,8 @@ cargo install graphify-rs
 # Build a knowledge graph (free, fast, no API key needed)
 graphify-rs build --no-llm
 
-# Explore interactively
-open graphify-out/graph.html         # macOS
-# xdg-open graphify-out/graph.html   # Linux
+# Explore interactively (output is at ~/.graphify-rs/<project>-<hash>/)
+open "$(ls -d ~/.graphify-rs/*graphify* | head -1)/graph.html"
 
 # Query the graph
 graphify-rs query "how does auth work?"
@@ -76,7 +75,7 @@ Rust rewrite of [graphify](https://github.com/safishamsi/graphify) (Python) — 
  │ .md .pdf │    │                                                      │
  └──────────┘    └──────────┬───────────────────────────────────────────┘
                             v
-                  graphify-out/
+                  ~/.graphify-rs/<name>-<hash>/
                   ├── graph.json          queryable graph data
                   ├── graph.html          interactive visualization
                   ├── GRAPH_REPORT.md     analysis report

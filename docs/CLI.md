@@ -51,7 +51,7 @@ Build the knowledge graph from files in a directory. This is the main pipeline: 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--path <PATH>` | `-p` | `String` | `"."` | Root directory to scan for source files. |
-| `--output <DIR>` | `-o` | `String` | `"graphify-out"` | Output directory for all generated files. |
+| `--output <DIR>` | `-o` | `String` | `~/.graphify-rs/<name>-<hash>/` | Output directory for all generated files. |
 | `--no-llm` | | `bool` | `false` | Skip LLM semantic extraction (pass 2). Only AST extraction runs. |
 | `--code-only` | | `bool` | `false` | Only process code files, skip docs and papers. |
 | `--update` | | `bool` | `false` | Incremental rebuild: only re-extract new/modified files since last build. |
@@ -109,7 +109,7 @@ Query the knowledge graph using natural language. Returns a subgraph context as 
 | `<QUESTION>` (positional) | `String` | *required* | The natural language question to query. |
 | `--dfs` | `bool` | `false` | Use depth-first search instead of breadth-first search for traversal. |
 | `--budget <N>` | `usize` | `2000` | Maximum token budget for the output text. |
-| `--graph <PATH>` | `String` | `"graphify-out/graph.json"` | Path to the graph JSON file. |
+| `--graph <PATH>` | `String` | `~/.graphify-rs/<name>-<hash>/graph.json` | Path to the graph JSON file. |
 
 #### Examples
 
@@ -158,7 +158,7 @@ Show graph statistics without rebuilding. Displays node/edge counts, communities
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `<GRAPH>` (positional) | `String` | `"graphify-out/graph.json"` | Path to the graph JSON file. |
+| `<GRAPH>` (positional) | `String` | `~/.graphify-rs/<name>-<hash>/graph.json` | Path to the graph JSON file. |
 
 #### Examples
 
@@ -181,7 +181,7 @@ Watch a directory for file changes and automatically rebuild the graph increment
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--path <PATH>` | `-p` | `String` | `"."` | Directory to watch for changes. |
-| `--output <DIR>` | `-o` | `String` | `"graphify-out"` | Output directory for graph files. |
+| `--output <DIR>` | `-o` | `String` | `~/.graphify-rs/<name>-<hash>/` | Output directory for graph files. |
 
 #### Examples
 
@@ -205,7 +205,7 @@ If the specified graph file does not exist, `serve` automatically runs a fast AS
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--graph <PATH>` | `String` | `"graphify-out/graph.json"` | Path to the graph JSON file to serve. |
+| `--graph <PATH>` | `String` | `~/.graphify-rs/<name>-<hash>/graph.json` | Path to the graph JSON file to serve. |
 
 #### Available MCP Tools
 
@@ -248,7 +248,7 @@ Ingest content from a URL (arXiv papers, tweets, PDFs, webpages) and add it to t
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `<URL>` (positional) | `String` | *required* | URL to ingest content from. |
-| `--output <DIR>` | `-o` | `String` | `"graphify-out"` | Output directory. |
+| `--output <DIR>` | `-o` | `String` | `~/.graphify-rs/<name>-<hash>/` | Output directory. |
 
 #### Examples
 
@@ -453,8 +453,8 @@ Generated file:
 # graphify-rs configuration
 # These values serve as defaults and can be overridden by CLI flags.
 
-# Output directory for graph files
-# output = "graphify-out"
+# Output directory for graph files (default: ~/.graphify-rs/<name>-<hash>/)
+# output = "~/.graphify-rs/my-project-a1b2c3d4"
 
 # Disable LLM-based semantic extraction
 # no_llm = false
@@ -517,7 +517,7 @@ Run a token-efficiency benchmark against a graph file.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `<GRAPH_PATH>` (positional) | `String` | `"graphify-out/graph.json"` | Path to the graph JSON file. |
+| `<GRAPH_PATH>` (positional) | `String` | `~/.graphify-rs/<name>-<hash>/graph.json` | Path to the graph JSON file. |
 
 #### Examples
 
@@ -543,7 +543,7 @@ Save a query result to the memory directory for future reference.
 | `--answer <TEXT>` | `String` | *required* | The answer that was generated. |
 | `--type <TYPE>` | `String` | `"query"` | Result type identifier. |
 | `--nodes <ID>...` | `Vec<String>` | `[]` | Related node IDs (can be specified multiple times). |
-| `--memory-dir <DIR>` | `String` | `"graphify-out/memory"` | Directory to save the result in. |
+| `--memory-dir <DIR>` | `String` | `~/.graphify-rs/<name>-<hash>/memory` | Directory to save the result in. |
 
 #### Examples
 
@@ -572,7 +572,7 @@ Create a `graphify.toml` file in your project root (or run `graphify-rs init`) t
 
 | Field | Type | Default | CLI Override | Description |
 |-------|------|---------|-------------|-------------|
-| `output` | `String` | `"graphify-out"` | `--output` | Output directory for graph files. |
+| `output` | `String` | `~/.graphify-rs/<name>-<hash>/` | `--output` | Output directory for graph files. |
 | `no_llm` | `bool` | `false` | `--no-llm` | Disable LLM-based semantic extraction. |
 | `code_only` | `bool` | `false` | `--code-only` | Only process code files (skip docs/papers). |
 | `formats` | `String[]` | `[]` (all formats) | `--format` | Export formats to generate. |
@@ -625,7 +625,7 @@ openai_compatible_base_url = "http://localhost:8000/v1"
 3. **Built-in defaults** are used when neither CLI nor config specifies a value.
 
 Specific merging rules:
-- `output`: CLI value is used if it differs from the built-in default (`"graphify-out"`); otherwise falls back to config.
+- `output`: CLI value is used if it differs from the built-in default (`~/.graphify-rs/<name>-<hash>/`); otherwise falls back to config.
 - `no_llm`: `true` if **either** CLI flag or config is `true` (OR logic).
 - `code_only`: `true` if **either** CLI flag or config is `true` (OR logic).
 - `formats`: CLI value is used if non-empty; otherwise falls back to config. Empty means all formats.
@@ -741,10 +741,10 @@ These platforms use a generic integration that only writes the `## graphify` sec
 
 Once installed, the agent follows these rules (injected into `CLAUDE.md` or `AGENTS.md`):
 
-1. **Before answering architecture or codebase questions** — read `graphify-out/GRAPH_REPORT.md` for god nodes and community structure.
-2. **If `graphify-out/wiki/index.md` exists** — navigate the wiki instead of reading raw files.
+1. **Before answering architecture or codebase questions** — read `GRAPH_REPORT.md` for god nodes and community structure.
+2. **If `wiki/index.md` exists** — navigate the wiki instead of reading raw files.
 3. **For specific questions** — run `graphify-rs query "<question>"` to get relevant subgraph context.
-4. **After modifying code files** — run `graphify-rs build --path . --output graphify-out --no-llm --update` to keep the graph current (fast, AST-only, ~2-5s).
+4. **After modifying code files** — run `graphify-rs build --path . --no-llm --update` to keep the graph current (fast, AST-only, ~2-5s).
 
 The `PreToolUse` hook automatically fires when the agent uses `Glob` or `Grep` tools (Claude/CodeBuddy) or `Bash` (Codex), injecting a reminder to check the graph first.
 
@@ -761,7 +761,7 @@ Add to your Claude Desktop MCP config (`claude_desktop_config.json`):
   "mcpServers": {
     "graphify": {
       "command": "graphify-rs",
-      "args": ["serve", "--graph", "graphify-out/graph.json"]
+      "args": ["serve"]
     }
   }
 }
@@ -776,7 +776,7 @@ Add to `.claude/settings.json`:
   "mcpServers": {
     "graphify": {
       "command": "graphify-rs",
-      "args": ["serve", "--graph", "graphify-out/graph.json"]
+      "args": ["serve"]
     }
   }
 }

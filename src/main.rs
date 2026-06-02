@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 mod cmd_build;
 mod config;
 mod install;
+mod paths;
 mod skill;
 
 #[derive(Parser)]
@@ -40,8 +41,8 @@ enum Commands {
     Build {
         #[arg(short, long, default_value = ".")]
         path: String,
-        #[arg(short, long, default_value = "graphify-out")]
-        output: String,
+        #[arg(short, long)]
+        output: Option<String>,
         #[arg(long)]
         no_llm: bool,
         #[arg(long)]
@@ -68,13 +69,13 @@ enum Commands {
         dfs: bool,
         #[arg(long, default_value_t = 2000)]
         budget: usize,
-        #[arg(long, default_value = "graphify-out/graph.json")]
-        graph: String,
+        #[arg(long)]
+        graph: Option<String>,
     },
     /// Run benchmark
     Benchmark {
-        #[arg(default_value = "graphify-out/graph.json")]
-        graph_path: String,
+        #[arg()]
+        graph_path: Option<String>,
     },
     /// Git hook management
     Hook {
@@ -131,26 +132,26 @@ enum Commands {
         r#type: String,
         #[arg(long)]
         nodes: Vec<String>,
-        #[arg(long, default_value = "graphify-out/memory")]
-        memory_dir: String,
+        #[arg(long)]
+        memory_dir: Option<String>,
     },
     /// Start MCP server
     Serve {
-        #[arg(long, default_value = "graphify-out/graph.json")]
-        graph: String,
+        #[arg(long)]
+        graph: Option<String>,
     },
     /// Watch for file changes and rebuild
     Watch {
         #[arg(short, long, default_value = ".")]
         path: String,
-        #[arg(short, long, default_value = "graphify-out")]
-        output: String,
+        #[arg(short, long)]
+        output: Option<String>,
     },
     /// Ingest URL content
     Ingest {
         url: String,
-        #[arg(short, long, default_value = "graphify-out")]
-        output: String,
+        #[arg(short, long)]
+        output: Option<String>,
     },
     /// Compare two graph snapshots
     Diff {
@@ -165,8 +166,8 @@ enum Commands {
     /// Show graph statistics without rebuilding
     Stats {
         /// Path to graph.json
-        #[arg(default_value = "graphify-out/graph.json")]
-        graph: String,
+        #[arg()]
+        graph: Option<String>,
     },
     /// Generate shell completions
     Completions {
@@ -280,10 +281,12 @@ async fn main() -> Result<()> {
         } => {
             let app_cfg = config::load_config(Path::new(&path));
             let effective_path = path;
-            let effective_output = if output == "graphify-out" {
-                app_cfg.output.unwrap_or(output)
-            } else {
-                output
+            let default_output = paths::resolve_default_output(Path::new(&effective_path))
+                .to_string_lossy()
+                .to_string();
+            let effective_output = match output {
+                Some(o) => o,
+                None => app_cfg.output.unwrap_or(default_output),
             };
             let effective_no_llm = no_llm || app_cfg.no_llm.unwrap_or(false);
             let effective_code_only = code_only || app_cfg.code_only.unwrap_or(false);
@@ -316,10 +319,22 @@ async fn main() -> Result<()> {
             budget,
             graph,
         } => {
-            cmd_query(&question, dfs, budget, &graph)?;
+            let graph_path = graph.unwrap_or_else(|| {
+                paths::resolve_default_output(Path::new("."))
+                    .join("graph.json")
+                    .to_string_lossy()
+                    .to_string()
+            });
+            cmd_query(&question, dfs, budget, &graph_path)?;
         }
         Commands::Benchmark { graph_path } => {
-            let result = graphify_benchmark::run_benchmark(Path::new(&graph_path), None)?;
+            let gp = graph_path.unwrap_or_else(|| {
+                paths::resolve_default_output(Path::new("."))
+                    .join("graph.json")
+                    .to_string_lossy()
+                    .to_string()
+            });
+            let result = graphify_benchmark::run_benchmark(Path::new(&gp), None)?;
             graphify_benchmark::print_benchmark(&result);
         }
         Commands::Hook { action } => {
@@ -393,23 +408,35 @@ async fn main() -> Result<()> {
             nodes,
             memory_dir,
         } => {
+            let mem_dir = memory_dir.unwrap_or_else(|| {
+                paths::resolve_default_output(Path::new("."))
+                    .join("memory")
+                    .to_string_lossy()
+                    .to_string()
+            });
             let nodes_ref: Option<&[String]> = if nodes.is_empty() { None } else { Some(&nodes) };
             let out = graphify_ingest::save_query_result(
                 &question,
                 &answer,
-                Path::new(&memory_dir),
+                Path::new(&mem_dir),
                 &r#type,
                 nodes_ref,
             )?;
             println!("Saved to {}", out.display());
         }
         Commands::Serve { graph } => {
-            let graph_path = Path::new(&graph);
+            let graph_str = graph.unwrap_or_else(|| {
+                paths::resolve_default_output(Path::new("."))
+                    .join("graph.json")
+                    .to_string_lossy()
+                    .to_string()
+            });
+            let graph_path = Path::new(&graph_str);
             if !graph_path.exists() {
                 tracing::info!("{} not found, running auto-build...", graph_path.display());
                 let output_dir = graph_path
                     .parent()
-                    .unwrap_or(Path::new("graphify-out"))
+                    .unwrap_or(&paths::resolve_default_output(Path::new(".")))
                     .to_string_lossy()
                     .to_string();
                 cmd_build::cmd_build(
@@ -430,17 +457,33 @@ async fn main() -> Result<()> {
             graphify_serve::start_server(graph_path).await?;
         }
         Commands::Watch { path, output } => {
-            graphify_watch::watch_directory(Path::new(&path), Path::new(&output)).await?;
+            let out_dir = output.unwrap_or_else(|| {
+                paths::resolve_default_output(Path::new(&path))
+                    .to_string_lossy()
+                    .to_string()
+            });
+            graphify_watch::watch_directory(Path::new(&path), Path::new(&out_dir)).await?;
         }
         Commands::Ingest { url, output } => {
-            let out = graphify_ingest::ingest_url(&url, Path::new(&output)).await?;
+            let out_dir = output.unwrap_or_else(|| {
+                paths::resolve_default_output(Path::new("."))
+                    .to_string_lossy()
+                    .to_string()
+            });
+            let out = graphify_ingest::ingest_url(&url, Path::new(&out_dir)).await?;
             println!("Ingested to {}", out.display());
         }
         Commands::Diff { old, new, output } => {
             cmd_diff(&old, &new, &output)?;
         }
         Commands::Stats { graph } => {
-            cmd_stats(&graph)?;
+            let gp = graph.unwrap_or_else(|| {
+                paths::resolve_default_output(Path::new("."))
+                    .join("graph.json")
+                    .to_string_lossy()
+                    .to_string()
+            });
+            cmd_stats(&gp)?;
         }
         Commands::Completions { shell } => {
             generate(shell, &mut Cli::command(), "graphify-rs", &mut io::stdout());

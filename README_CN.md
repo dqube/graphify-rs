@@ -67,9 +67,8 @@ cargo install --path .
 # 1. 构建知识图谱（免费、快速、无需 API Key）
 graphify-rs build --no-llm
 
-# 2. 在浏览器中探索交互式可视化
-open graphify-out/graph.html       # macOS
-# xdg-open graphify-out/graph.html # Linux
+# 2. 在浏览器中探索交互式可视化（输出在 ~/.graphify-rs/<project>-<hash>/）
+open "$(ls -d ~/.graphify-rs/*graphify* | head -1)/graph.html"
 
 # 3. 查询图谱
 graphify-rs query "认证是如何工作的？"
@@ -94,7 +93,7 @@ graphify-rs build                  # 添加 LLM 推断的 INFERRED 边
  │ .png     │    └──────────┬──────────────────────────────────────────────┘
  └──────────┘               │
                             ▼
-                  graphify-out/
+                  ~/.graphify-rs/<name>-<hash>/
                   ├── graph.json        （可查询的图谱数据）
                   ├── graph.html        （交互式可视化）
                   ├── GRAPH_REPORT.md   （分析报告）
