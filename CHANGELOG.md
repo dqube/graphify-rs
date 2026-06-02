@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-05-28
+
+### Added
+
+- **CodeGraph SQLite edge merge** — `graphify-rs build` now auto-detects `.codegraph/codegraph.db` in the project root and merges its edges (calls, imports, contains, etc.) into the knowledge graph. Node kinds are mapped to `NodeType`, file paths normalized, and duplicate edges skipped. Zero-config: works automatically when the DB is present, silently ignored otherwise.
+
+### Changed
+
+- **Skill trigger renamed** — `/graphify` → `/graphify-rs` to match the binary name
+- **Unified edge dispatch** — `map_edge_kind()` in `graphify-build` now handles contains/unknown edge kinds through a single match arm instead of ad-hoc fallbacks
+
 ## [0.5.2] - 2026-05-24
 
 ### Added
@@ -221,8 +232,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hook integration (post-commit, post-checkout)
 - CLI with 21 subcommands via clap derive
 
-[0.5.0]: https://github.com/TtTRz/graphify-rs/compare/v0.4.5...v0.5.0
+[0.5.3]: https://github.com/TtTRz/graphify-rs/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/TtTRz/graphify-rs/compare/v0.5.1...v0.5.2
+[0.5.1]: https://github.com/TtTRz/graphify-rs/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/TtTRz/graphify-rs/compare/v0.4.5...v0.5.0
 [0.4.5]: https://github.com/TtTRz/graphify-rs/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/TtTRz/graphify-rs/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/TtTRz/graphify-rs/compare/v0.4.2...v0.4.3
