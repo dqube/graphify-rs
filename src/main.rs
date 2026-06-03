@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{Shell, generate};
 use colored::Colorize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -167,6 +167,23 @@ enum Commands {
     Stats {
         /// Path to graph.json
         #[arg()]
+        graph: Option<String>,
+    },
+    /// Find test files affected by changed source files
+    Affected {
+        /// Changed file paths (relative to project root)
+        files: Vec<String>,
+        /// Read file list from stdin (pipe from git diff)
+        #[arg(long)]
+        stdin: bool,
+        /// Maximum dependency traversal depth (default: 5)
+        #[arg(short, long, default_value_t = 5)]
+        depth: usize,
+        /// Output format: text or json
+        #[arg(long, default_value = "text")]
+        output: String,
+        /// Path to graph.json
+        #[arg(long)]
         graph: Option<String>,
     },
     /// Generate shell completions
@@ -485,6 +502,21 @@ async fn main() -> Result<()> {
             });
             cmd_stats(&gp)?;
         }
+        Commands::Affected {
+            files,
+            stdin,
+            depth,
+            output,
+            graph,
+        } => {
+            let gp = graph.unwrap_or_else(|| {
+                paths::resolve_default_output(Path::new("."))
+                    .join("graph.json")
+                    .to_string_lossy()
+                    .to_string()
+            });
+            cmd_affected(&files, stdin, depth, &output, &gp)?;
+        }
         Commands::Completions { shell } => {
             generate(shell, &mut Cli::command(), "graphify-rs", &mut io::stdout());
         }
@@ -771,4 +803,210 @@ fn cmd_init() -> Result<()> {
     )?;
     println!("{} Created graphify.toml", "✓".green());
     Ok(())
+}
+
+fn cmd_affected(
+    files: &[String],
+    read_stdin: bool,
+    max_depth: usize,
+    output_format: &str,
+    graph_path: &str,
+) -> Result<()> {
+    let gp = PathBuf::from(graph_path);
+    if !gp.exists() {
+        anyhow::bail!("Graph file not found: {}", gp.display());
+    }
+
+    let json_str = std::fs::read_to_string(&gp).context("Could not read graph file")?;
+    let json_value: serde_json::Value =
+        serde_json::from_str(&json_str).context("Could not parse graph JSON")?;
+    let graph = graphify_core::graph::KnowledgeGraph::from_node_link_json(&json_value)
+        .context("Could not load graph from JSON")?;
+
+    let mut changed_files: Vec<String> = files.to_vec();
+    if read_stdin {
+        use std::io::BufRead;
+        let stdin = std::io::stdin();
+        for line in stdin.lock().lines().map_while(Result::ok) {
+            let trimmed = line.trim().to_string();
+            if !trimmed.is_empty() {
+                changed_files.push(trimmed);
+            }
+        }
+    }
+
+    if changed_files.is_empty() {
+        println!("No changed files provided. Use positional args or --stdin.");
+        return Ok(());
+    }
+
+    let changed: HashSet<String> = changed_files.iter().cloned().collect();
+
+    let file_nodes: HashMap<String, String> = graph
+        .nodes()
+        .into_iter()
+        .filter(|n| n.node_type == graphify_core::model::NodeType::File)
+        .map(|n| (n.source_file.clone(), n.id.clone()))
+        .collect();
+
+    // Build a reverse dependency index: target_id -> Vec<source_id>
+    // Only consider dependency-like edges (imports, uses, calls)
+    let mut reverse_deps: HashMap<String, Vec<String>> = HashMap::new();
+    for edge in graph.edges() {
+        if matches!(edge.relation.as_str(), "imports" | "uses" | "calls") {
+            reverse_deps
+                .entry(edge.target.clone())
+                .or_default()
+                .push(edge.source.clone());
+        }
+    }
+
+    let mut affected: HashSet<String> = HashSet::new();
+    let mut queue: VecDeque<String> = VecDeque::new();
+
+    for path in &changed {
+        let normalized = path.trim_start_matches("./").replace('\\', "/");
+        let file_id = file_nodes
+            .get(normalized.as_str())
+            .or_else(|| file_nodes.get(path.as_str()));
+        if let Some(file_id) = file_id {
+            queue.push_back(file_id.clone());
+        }
+    }
+
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut depth_map: HashMap<String, usize> = HashMap::new();
+    for id in queue.iter() {
+        visited.insert(id.clone());
+        depth_map.insert(id.clone(), 0);
+    }
+
+    while let Some(current) = queue.pop_front() {
+        let current_depth = *depth_map.get(&current).unwrap_or(&max_depth);
+        if current_depth >= max_depth {
+            continue;
+        }
+
+        // Traverse only reverse dependency edges (who depends on current node)
+        if let Some(dependents) = reverse_deps.get(&current) {
+            for dep_id in dependents {
+                if !visited.contains(dep_id) {
+                    visited.insert(dep_id.clone());
+                    depth_map.insert(dep_id.clone(), current_depth + 1);
+                    queue.push_back(dep_id.clone());
+
+                    if let Some(node) = graph.get_node(dep_id) {
+                        if is_test_file(&node.source_file) && !changed.contains(&node.source_file) {
+                            affected.insert(node.source_file.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut sorted: Vec<String> = affected.into_iter().collect();
+    sorted.sort();
+
+    match output_format {
+        "json" => {
+            let result = serde_json::json!({
+                "changed_files": changed_files,
+                "affected_tests": sorted,
+                "depth": max_depth,
+            });
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        _ => {
+            if sorted.is_empty() {
+                println!("No affected test files found.");
+            } else {
+                for file in &sorted {
+                    println!("{file}");
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn is_test_file(path: &str) -> bool {
+    let lp = path.to_lowercase();
+    let name = lp.rsplit('/').next().unwrap_or(&lp);
+    lp.contains("/tests/")
+        || lp.contains("/__tests__/")
+        || lp.contains("/test/")
+        || lp.contains("/spec/")
+        || name.starts_with("test_")
+        || name.starts_with("tests_")
+        || name.ends_with("_test.go")
+        || name.ends_with("_test.py")
+        || name.ends_with("_test.rs")
+        || name.ends_with("_test.rb")
+        || name.ends_with("_spec.rb")
+        || name.ends_with("_test.dart")
+        || name.ends_with("_test.swift")
+        || name.ends_with("_test.kt")
+        || name.ends_with("_test.scala")
+        || name.contains(".test.")
+        || name.contains(".spec.")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_file_dirs() {
+        assert!(is_test_file("src/tests/utils.rs"));
+        assert!(is_test_file("app/__tests__/App.test.tsx"));
+        assert!(is_test_file("pkg/test/helper.go"));
+        assert!(is_test_file("spec/models/user_spec.rb"));
+    }
+
+    #[test]
+    fn test_file_prefixes() {
+        assert!(is_test_file("test_helper.py"));
+        assert!(is_test_file("tests_main.go"));
+        assert!(is_test_file("src/test_auth.rs"));
+    }
+
+    #[test]
+    fn test_file_suffixes() {
+        assert!(is_test_file("server_test.go"));
+        assert!(is_test_file("parser_test.py"));
+        assert!(is_test_file("handler_test.rs"));
+        assert!(is_test_file("user_test.rb"));
+        assert!(is_test_file("model_spec.rb"));
+        assert!(is_test_file("widget_test.dart"));
+        assert!(is_test_file("NetworkManager_test.swift"));
+        assert!(is_test_file("RepoTest_test.kt"));
+        assert!(is_test_file("Service_test.scala"));
+    }
+
+    #[test]
+    fn test_dot_patterns() {
+        assert!(is_test_file("App.test.tsx"));
+        assert!(is_test_file("utils.spec.ts"));
+        assert!(is_test_file("Component.test.js"));
+    }
+
+    #[test]
+    fn non_test_files() {
+        assert!(!is_test_file("src/main.rs"));
+        assert!(!is_test_file("lib.rs"));
+        assert!(!is_test_file("src/auth/controller.go"));
+        assert!(!is_test_file("testing_utils.rs"));
+        assert!(!is_test_file("testimony.rs"));
+        assert!(!is_test_file("contest_handler.py"));
+        assert!(!is_test_file("latest_data.go"));
+    }
+
+    #[test]
+    fn case_insensitive() {
+        assert!(is_test_file("src/Tests/Utils.rs"));
+        assert!(is_test_file("SRC/TEST/main.go"));
+        assert!(is_test_file("App.Test.tsx"));
+    }
 }

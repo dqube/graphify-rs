@@ -11,13 +11,14 @@
   - [diff](#graphify-rs-diff) — 比较图谱快照
   - [stats](#graphify-rs-stats) — 图谱统计
   - [watch](#graphify-rs-watch) — 文件变更自动重建
-  - [serve](#graphify-rs-serve) — 启动 MCP 服务器（15 个工具）
+  - [serve](#graphify-rs-serve) — 启动 MCP 服务器（16 个工具）
   - [ingest](#graphify-rs-ingest) — 抓取 URL 内容
   - [hook](#graphify-rs-hook) — Git 钩子管理
   - [install](#graphify-rs-install) — 安装 AI 助手技能
   - [init](#graphify-rs-init) — 创建配置文件
   - [completions](#graphify-rs-completions) — Shell 补全
   - [benchmark](#graphify-rs-benchmark) — Token 效率测试
+  - [affected](#graphify-rs-affected) — 测试影响分析
 - [配置文件](#配置文件-graphifytoml)
 - [智能体集成](#智能体集成)
 
@@ -197,7 +198,7 @@ graphify-rs watch --path src --output my-graph
 
 ### `graphify-rs serve`
 
-启动 MCP（Model Context Protocol）服务器，通过 JSON-RPC 2.0（stdio）提供服务。提供 15 个 AI 智能体可直接调用的工具。
+启动 MCP（Model Context Protocol）服务器，通过 JSON-RPC 2.0（stdio）提供服务。提供 16 个 AI 智能体可直接调用的工具。
 
 如果指定的图谱文件不存在，`serve` 会自动对当前目录执行快速 AST-only 构建（`--no-llm --code-only --format json`）后再启动服务器。这意味着 `graphify-rs serve` 可以作为零配置入口——无需手动执行 `build` 步骤。
 
@@ -226,6 +227,7 @@ graphify-rs watch --path src --output my-graph
 | `detect_cycles` | 使用 Tarjan SCC 算法检测依赖循环 |
 | `smart_summary` | 多层级图摘要（详细 / 社区级 / 架构级） |
 | `find_similar` | 通过图嵌入查找结构相似的节点对 |
+| `explore` | 面向任务的图谱探索：关键词搜索 + BFS + 文件分组，单次调用获取上下文 |
 
 #### 示例
 
@@ -515,6 +517,38 @@ graphify-rs benchmark
 
 # 对指定图谱进行基准测试
 graphify-rs benchmark /path/to/graph.json
+```
+
+---
+
+### `graphify-rs affected`
+
+测试影响分析 — 给定变更文件，通过遍历知识图谱中的反向依赖关系，找出可能受影响的测试。
+
+#### 参数
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `<FILES>...`（位置参数） | `Vec<String>` | *必填（或使用 `--stdin`）* | 要分析的变更文件路径。 |
+| `--stdin` | `bool` | `false` | 从标准输入读取变更文件路径（每行一个）。 |
+| `--depth <N>` | `usize` | `5` | 反向依赖 BFS 遍历的最大深度。 |
+| `--output <FORMAT>` | `String` | `"text"` | 输出格式：`text`（可读文本）或 `json`。 |
+| `--graph <PATH>` | `String` | `~/.graphify-rs/<name>-<hash>/graph.json` | 图谱 JSON 文件路径。 |
+
+#### 示例
+
+```bash
+# 查找受指定文件变更影响的测试
+graphify-rs affected src/auth.rs src/db.rs
+
+# 从 git 读取变更文件
+git diff --name-only | graphify-rs affected --stdin
+
+# JSON 输出供 CI 管道使用
+git diff --name-only origin/main | graphify-rs affected --stdin --output json
+
+# 大型代码库使用更深的遍历
+graphify-rs affected src/core/mod.rs --depth 10
 ```
 
 ---

@@ -11,13 +11,14 @@
   - [diff](#graphify-rs-diff) — Compare two graph snapshots
   - [stats](#graphify-rs-stats) — Show graph statistics
   - [watch](#graphify-rs-watch) — Auto-rebuild on file changes
-  - [serve](#graphify-rs-serve) — Start MCP server (15 tools)
+  - [serve](#graphify-rs-serve) — Start MCP server (16 tools)
   - [ingest](#graphify-rs-ingest) — Fetch URL content
   - [hook](#graphify-rs-hook) — Git hook management
   - [install](#graphify-rs-install) — Install skill for AI agents
   - [init](#graphify-rs-init) — Create config file
   - [completions](#graphify-rs-completions) — Shell completions
   - [benchmark](#graphify-rs-benchmark) — Token efficiency
+  - [affected](#graphify-rs-affected) — Test impact analysis
 - [Configuration](#configuration-graphifytoml)
 - [Agent Integration](#agent-integration)
 
@@ -197,7 +198,7 @@ graphify-rs watch --path src --output my-graph
 
 ### `graphify-rs serve`
 
-Start the MCP (Model Context Protocol) server over JSON-RPC 2.0 (stdio). Provides 15 tools that AI agents can call directly.
+Start the MCP (Model Context Protocol) server over JSON-RPC 2.0 (stdio). Provides 16 tools that AI agents can call directly.
 
 If the specified graph file does not exist, `serve` automatically runs a fast AST-only build (`--no-llm --code-only --format json`) on the current directory before starting the server. This means `graphify-rs serve` works as a zero-config entry point — no manual `build` step required.
 
@@ -226,6 +227,7 @@ If the specified graph file does not exist, `serve` automatically runs a fast AS
 | `detect_cycles` | Detect dependency cycles using Tarjan's SCC algorithm |
 | `smart_summary` | Multi-level graph summary (detailed / community / architecture) |
 | `find_similar` | Find structurally similar node pairs via graph embeddings |
+| `explore` | Explore the graph for a task: keyword search + BFS + file grouping in a single call |
 
 #### Examples
 
@@ -527,6 +529,38 @@ graphify-rs benchmark
 
 # Benchmark a specific graph
 graphify-rs benchmark /path/to/graph.json
+```
+
+---
+
+### `graphify-rs affected`
+
+Test impact analysis — given changed files, find which tests may be affected by traversing reverse dependencies in the knowledge graph.
+
+#### Parameters
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `<FILES>...` (positional) | `Vec<String>` | *required (or `--stdin`)* | Changed file paths to analyze. |
+| `--stdin` | `bool` | `false` | Read changed file paths from stdin (one per line). |
+| `--depth <N>` | `usize` | `5` | Maximum BFS traversal depth for reverse dependency search. |
+| `--output <FORMAT>` | `String` | `"text"` | Output format: `text` (human-readable) or `json`. |
+| `--graph <PATH>` | `String` | `~/.graphify-rs/<name>-<hash>/graph.json` | Path to the graph JSON file. |
+
+#### Examples
+
+```bash
+# Find tests affected by specific file changes
+graphify-rs affected src/auth.rs src/db.rs
+
+# Read changed files from git
+git diff --name-only | graphify-rs affected --stdin
+
+# JSON output for CI pipelines
+git diff --name-only origin/main | graphify-rs affected --stdin --output json
+
+# Deeper traversal for large codebases
+graphify-rs affected src/core/mod.rs --depth 10
 ```
 
 ---

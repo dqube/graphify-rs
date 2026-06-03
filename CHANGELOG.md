@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-06-03
+
+### Added
+
+- **Edge provenance tracking** — every `GraphEdge` now carries an optional `provenance` field recording where the edge came from (`ast:calls`, `ast:import`, `cross-file:import-resolve`, `cross-file:call-resolve`, `cross-file:python-star-import`, `codegraph-merge`, `llm:semantic`, `regex:*`). Backward-compatible: existing JSON without this field loads as `null`.
+- **`explore` MCP tool** — 16th MCP tool. Takes a natural language task, searches for seed nodes, BFS-traverses the subgraph, and returns symbols grouped by file with a relationship map. One call replaces multiple `query_graph` + `get_neighbors` combinations.
+- **`affected` test impact analysis** — new `graphify-rs affected` subcommand. Traces reverse dependency edges (`imports`/`uses`/`calls`) from changed files to find affected test files. Supports `--stdin` for piping `git diff --name-only`. Detects 16+ test file naming patterns across 8 languages.
+
 ## [0.6.0] - 2026-06-02
 
 ### Changed
@@ -240,6 +248,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Git hook integration (post-commit, post-checkout)
 - CLI with 21 subcommands via clap derive
 
+[0.7.0]: https://github.com/TtTRz/graphify-rs/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/TtTRz/graphify-rs/compare/v0.5.3...v0.6.0
 [0.5.3]: https://github.com/TtTRz/graphify-rs/compare/v0.5.2...v0.5.3
 [0.5.2]: https://github.com/TtTRz/graphify-rs/compare/v0.5.1...v0.5.2

@@ -61,7 +61,7 @@ Rust rewrite of [graphify](https://github.com/safishamsi/graphify) (Python) — 
 | **Memory** | ~48MB | **~1MB** (48x less) |
 | **AST parsing** | Regex only | 11 native tree-sitter + regex fallback |
 | **Community detection** | Louvain | **Leiden** (with refinement) |
-| **MCP server** | - | **15 tools** over JSON-RPC 2.0 |
+| **MCP server** | - | **16 tools** over JSON-RPC 2.0 |
 | **Export formats** | 7 | **9** (+ Obsidian, split HTML) |
 | **Extraction** | Sequential | **Parallel** (`rayon`, configurable `-j`) |
 
@@ -113,12 +113,12 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#graph-algorithms) for complexity
 
 ```bash
 graphify-rs install              # install skill for AI coding agents
-graphify-rs serve                # start MCP server (15 tools)
+graphify-rs serve                # start MCP server (16 tools)
 ```
 
 Agents auto-check the graph before architecture questions and rebuild after code changes. Works with Claude Code, CodeBuddy, Codex, OpenCode, and more.
 
-15 MCP tools: `query_graph`, `pagerank`, `detect_cycles`, `smart_summary`, `find_similar`, `shortest_path`, and [9 more](docs/ARCHITECTURE.md#mcp-server-tools-15).
+16 MCP tools: `query_graph`, `explore`, `pagerank`, `detect_cycles`, `smart_summary`, `find_similar`, `shortest_path`, and [9 more](docs/ARCHITECTURE.md#mcp-server-tools-16).
 
 ## Architecture
 
@@ -130,7 +130,7 @@ Agents auto-check the graph before architecture questions and rebuild after code
 | `graphify-extract` | AST extraction (21 languages), multi-provider LLM semantic extraction |
 | `graphify-cluster` | Leiden community detection, incremental re-clustering |
 | `graphify-analyze` | PageRank, cycles, embeddings, god nodes, temporal risk |
-| `graphify-serve` | MCP server (15 tools), smart summarization |
+| `graphify-serve` | MCP server (16 tools), smart summarization |
 | `graphify-export` | 9 formats: JSON, HTML, SVG, GraphML, Cypher, Wiki, Obsidian, Report |
 | + 8 more | Cache, security, ingestion, watch, hooks, benchmark, detect, build |
 
