@@ -18,7 +18,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.8.0"
+version = "0.8.1"
 edition = "2024"
 authors = ["TtTRz <romc1224@gmail.com>"]
 license = "MIT"
@@ -89,7 +89,9 @@ exclude = [
     ".github/",
     "tests/",
     "graphify-out/",
+    "graphify-rs-out/",
     "graphify.toml",
+    "graphify-rs.toml",
     "README_CN.md",
     "AUDIT_*.md",
 ]

@@ -292,12 +292,12 @@ Project-level Claude Code integration. Installs a `PreToolUse` hook and adds gra
 
 #### What `install` does
 
-1. Appends a `## graphify` section to `./CLAUDE.md` with rules for the agent to read the graph report.
+1. Appends a `## graphify-rs` section to `./CLAUDE.md` with rules for the agent to read the graph report.
 2. Writes a `PreToolUse` hook to `.claude/settings.json` that triggers on `Glob|Grep` tool calls.
 
 #### What `uninstall` does
 
-1. Removes the `## graphify` section from `./CLAUDE.md`.
+1. Removes the `## graphify-rs` section from `./CLAUDE.md`.
 2. Removes the hook from `.claude/settings.json`.
 
 #### Examples
@@ -324,7 +324,7 @@ graphify-rs codex uninstall
 
 ### `graphify-rs opencode install` / `uninstall`
 
-Project-level OpenCode integration. Writes a plugin to `.opencode/plugins/graphify.js`, registers it in `opencode.json`, and adds instructions to `AGENTS.md`.
+Project-level OpenCode integration. Writes a plugin to `.opencode/plugins/graphify-rs.js`, registers it in `opencode.json`, and adds instructions to `AGENTS.md`.
 
 #### Examples
 
@@ -441,7 +441,7 @@ graphify-rs install --platform opencode
 
 ### `graphify-rs init`
 
-Initialize a `graphify.toml` configuration file in the current directory with commented-out defaults. Fails if the file already exists.
+Initialize a `graphify-rs.toml` configuration file in the current directory with commented-out defaults. Fails if the file already exists.
 
 #### Examples
 
@@ -598,9 +598,9 @@ graphify-rs save-result \
 
 ---
 
-## Configuration (`graphify.toml`)
+## Configuration (`graphify-rs.toml`)
 
-Create a `graphify.toml` file in your project root (or run `graphify-rs init`) to set project-level defaults.
+Create a `graphify-rs.toml` file in your project root (or run `graphify-rs init`) to set project-level defaults.
 
 ### Fields
 
@@ -655,7 +655,7 @@ openai_compatible_base_url = "http://localhost:8000/v1"
 ### Precedence Rules
 
 1. **CLI flags** always take the highest priority.
-2. **`graphify.toml`** values are used as defaults when CLI flags are not set.
+2. **`graphify-rs.toml`** values are used as defaults when CLI flags are not set.
 3. **Built-in defaults** are used when neither CLI nor config specifies a value.
 
 Specific merging rules:
@@ -707,7 +707,7 @@ graphify-rs install --platform claude
 ```
 
 What `claude install` creates:
-- `./CLAUDE.md` — appends a `## graphify` section with agent rules
+- `./CLAUDE.md` — appends a `## graphify-rs` section with agent rules
 - `.claude/settings.json` — adds a `PreToolUse` hook on `Glob|Grep` that reminds the agent to check the graph first
 
 #### Codex
@@ -724,7 +724,7 @@ graphify-rs install --platform codex
 ```
 
 What `codex install` creates:
-- `./AGENTS.md` — appends a `## graphify` section with agent rules
+- `./AGENTS.md` — appends a `## graphify-rs` section with agent rules
 - `.codex/hooks.json` — adds a `PreToolUse` hook on `Bash` tool calls
 
 #### OpenCode
@@ -741,8 +741,8 @@ graphify-rs install --platform opencode
 ```
 
 What `opencode install` creates:
-- `./AGENTS.md` — appends a `## graphify` section with agent rules
-- `.opencode/plugins/graphify.js` — PreToolUse plugin
+- `./AGENTS.md` — appends a `## graphify-rs` section with agent rules
+- `.opencode/plugins/graphify-rs.js` — PreToolUse plugin
 - `opencode.json` — registers the plugin
 
 #### CodeBuddy
@@ -759,7 +759,7 @@ graphify-rs install --platform codebuddy
 ```
 
 What `codebuddy install` creates:
-- `./AGENTS.md` — appends a `## graphify` section with agent rules
+- `./AGENTS.md` — appends a `## graphify-rs` section with agent rules
 - `.codebuddy/settings.json` — adds a `PreToolUse` hook on `Glob|Grep` tool calls
 
 #### Claw / Droid / Trae / Trae CN
@@ -769,7 +769,7 @@ graphify-rs claw install       # or droid, trae, trae-cn
 graphify-rs build
 ```
 
-These platforms use a generic integration that only writes the `## graphify` section to `./AGENTS.md`.
+These platforms use a generic integration that only writes the `## graphify-rs` section to `./AGENTS.md`.
 
 ### How Agents Use the Graph
 
@@ -793,7 +793,7 @@ Add to your Claude Desktop MCP config (`claude_desktop_config.json`):
 ```json
 {
   "mcpServers": {
-    "graphify": {
+    "graphify-rs": {
       "command": "graphify-rs",
       "args": ["serve"]
     }
@@ -808,7 +808,7 @@ Add to `.claude/settings.json`:
 ```json
 {
   "mcpServers": {
-    "graphify": {
+    "graphify-rs": {
       "command": "graphify-rs",
       "args": ["serve"]
     }

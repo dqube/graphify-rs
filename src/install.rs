@@ -79,14 +79,14 @@ const PLATFORMS: &[(&str, PlatformConfig)] = &[
 ];
 
 const SKILL_REGISTRATION: &str = r#"
-# graphify
+# graphify-rs
 - **graphify-rs** (`~/.claude/skills/graphify-rs/SKILL.md`) - any input to knowledge graph. Trigger: `/graphify-rs`
 When the user types `/graphify-rs`, invoke the Skill tool with `skill: "graphify-rs"` before doing anything else.
 "#;
 
 fn graph_md_section(output_dir: &str) -> String {
     format!(
-        r"## graphify
+        r"## graphify-rs
 
 This project has a graphify-rs knowledge graph at {output_dir}/.
 
@@ -98,9 +98,9 @@ Rules:
     )
 }
 
-const CLAUDE_MD_MARKER: &str = "## graphify";
+const CLAUDE_MD_MARKER: &str = "## graphify-rs";
 
-const AGENTS_MD_MARKER: &str = "## graphify";
+const AGENTS_MD_MARKER: &str = "## graphify-rs";
 
 /// Check all known skill install locations for stale versions.
 /// Call this on startup (before executing any subcommand).
@@ -113,7 +113,7 @@ pub fn check_skill_versions() {
         let version_file = home
             .join(config.skill_dst)
             .parent()
-            .map(|p| p.join(".graphify_version"))
+            .map(|p| p.join(".graphify_rs_version"))
             .unwrap_or_default();
         if version_file.exists() {
             if let Ok(installed) = fs::read_to_string(&version_file) {
@@ -157,17 +157,17 @@ pub fn install_skill(platform: &str) -> Result<()> {
     println!("  Wrote skill file to {}", skill_path.display());
 
     if let Some(parent) = skill_path.parent() {
-        let version_file = parent.join(".graphify_version");
+        let version_file = parent.join(".graphify_rs_version");
         let _ = fs::write(&version_file, VERSION);
     }
 
     if config.register_claude_md {
         let claude_md_path = home.join(".claude/CLAUDE.md");
-        register_in_file(&claude_md_path, SKILL_REGISTRATION, "# graphify")?;
+        register_in_file(&claude_md_path, SKILL_REGISTRATION, "# graphify-rs")?;
         println!("  Registered in {}", claude_md_path.display());
     }
 
-    println!("\n  Installed graphify skill for '{platform}'.");
+    println!("\n  Installed graphify-rs skill for '{platform}'.");
     println!("  Use `/graphify-rs` in your AI assistant to trigger the skill.");
 
     Ok(())
@@ -277,7 +277,7 @@ pub fn opencode_install(project_root: &Path) -> Result<()> {
     append_section(&agents_md, &graph_md_section(&output_dir), AGENTS_MD_MARKER)?;
     println!("  Updated {}", agents_md.display());
 
-    let plugin_path = project_root.join(".opencode/plugins/graphify.js");
+    let plugin_path = project_root.join(".opencode/plugins/graphify-rs.js");
     write_opencode_plugin(&plugin_path, &output_dir)?;
     println!("  Wrote plugin to {}", plugin_path.display());
 
@@ -295,7 +295,7 @@ pub fn opencode_uninstall(project_root: &Path) -> Result<()> {
     remove_section(&agents_md, AGENTS_MD_MARKER)?;
     println!("  Cleaned {}", agents_md.display());
 
-    let plugin_path = project_root.join(".opencode/plugins/graphify.js");
+    let plugin_path = project_root.join(".opencode/plugins/graphify-rs.js");
     if plugin_path.exists() {
         fs::remove_file(&plugin_path)?;
         println!("  Removed {}", plugin_path.display());
@@ -628,7 +628,7 @@ module.exports = {{
     Ok(())
 }
 
-/// Register graphify plugin in opencode.json.
+/// Register graphify-rs plugin in opencode.json.
 fn register_opencode_config(path: &Path) -> Result<()> {
     let mut config: serde_json::Value = if path.exists() {
         let content = fs::read_to_string(path)?;
@@ -646,9 +646,9 @@ fn register_opencode_config(path: &Path) -> Result<()> {
     if let Some(arr) = plugins.as_array_mut() {
         let already = arr
             .iter()
-            .any(|v| v.as_str() == Some(".opencode/plugins/graphify.js"));
+            .any(|v| v.as_str() == Some(".opencode/plugins/graphify-rs.js"));
         if !already {
-            arr.push(serde_json::json!(".opencode/plugins/graphify.js"));
+            arr.push(serde_json::json!(".opencode/plugins/graphify-rs.js"));
         }
     }
 
@@ -657,7 +657,7 @@ fn register_opencode_config(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Remove graphify plugin from opencode.json.
+/// Remove graphify-rs plugin from opencode.json.
 fn unregister_opencode_config(path: &Path) -> Result<()> {
     if !path.exists() {
         return Ok(());
@@ -669,7 +669,7 @@ fn unregister_opencode_config(path: &Path) -> Result<()> {
 
     if let Some(plugins) = config.get_mut("plugin") {
         if let Some(arr) = plugins.as_array_mut() {
-            arr.retain(|v| v.as_str() != Some(".opencode/plugins/graphify.js"));
+            arr.retain(|v| v.as_str() != Some(".opencode/plugins/graphify-rs.js"));
         }
     }
 

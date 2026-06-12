@@ -292,12 +292,12 @@ graphify-rs hook status       # 检查钩子是否已安装
 
 #### `install` 做了什么
 
-1. 在 `./CLAUDE.md` 中追加 `## graphify` 章节，包含智能体读取图谱报告的规则。
+1. 在 `./CLAUDE.md` 中追加 `## graphify-rs` 章节，包含智能体读取图谱报告的规则。
 2. 在 `.claude/settings.json` 中写入 `PreToolUse` 钩子，在 `Glob|Grep` 工具调用时触发。
 
 #### `uninstall` 做了什么
 
-1. 从 `./CLAUDE.md` 中移除 `## graphify` 章节。
+1. 从 `./CLAUDE.md` 中移除 `## graphify-rs` 章节。
 2. 从 `.claude/settings.json` 中移除钩子。
 
 #### 示例
@@ -324,7 +324,7 @@ graphify-rs codex uninstall
 
 ### `graphify-rs opencode install` / `uninstall`
 
-项目级 OpenCode 集成。将插件写入 `.opencode/plugins/graphify.js`，在 `opencode.json` 中注册，并将指令添加到 `AGENTS.md`。
+项目级 OpenCode 集成。将插件写入 `.opencode/plugins/graphify-rs.js`，在 `opencode.json` 中注册，并将指令添加到 `AGENTS.md`。
 
 #### 示例
 
@@ -441,7 +441,7 @@ graphify-rs install --platform opencode
 
 ### `graphify-rs init`
 
-在当前目录初始化 `graphify.toml` 配置文件，包含注释掉的默认值。如果文件已存在则会失败。
+在当前目录初始化 `graphify-rs.toml` 配置文件，包含注释掉的默认值。如果文件已存在则会失败。
 
 #### 示例
 
@@ -586,9 +586,9 @@ graphify-rs save-result \
 
 ---
 
-## 配置文件（`graphify.toml`）
+## 配置文件（`graphify-rs.toml`）
 
-在项目根目录创建 `graphify.toml` 文件（或运行 `graphify-rs init`）以设置项目级默认值。
+在项目根目录创建 `graphify-rs.toml` 文件（或运行 `graphify-rs init`）以设置项目级默认值。
 
 ### 字段
 
@@ -643,7 +643,7 @@ openai_compatible_base_url = "http://localhost:8000/v1"
 ### 优先级规则
 
 1. **CLI 参数**始终具有最高优先级。
-2. **`graphify.toml`** 中的值作为 CLI 参数未设置时的默认值。
+2. **`graphify-rs.toml`** 中的值作为 CLI 参数未设置时的默认值。
 3. **内置默认值**在 CLI 和配置文件都未指定时使用。
 
 具体的合并规则：
@@ -695,7 +695,7 @@ graphify-rs install --platform claude
 ```
 
 `claude install` 创建的内容：
-- `./CLAUDE.md` — 追加 `## graphify` 章节，包含智能体规则
+- `./CLAUDE.md` — 追加 `## graphify-rs` 章节，包含智能体规则
 - `.claude/settings.json` — 添加 `PreToolUse` 钩子，在 `Glob|Grep` 工具调用时触发，提醒智能体先查看图谱
 
 #### Codex
@@ -712,7 +712,7 @@ graphify-rs install --platform codex
 ```
 
 `codex install` 创建的内容：
-- `./AGENTS.md` — 追加 `## graphify` 章节，包含智能体规则
+- `./AGENTS.md` — 追加 `## graphify-rs` 章节，包含智能体规则
 - `.codex/hooks.json` — 添加 `PreToolUse` 钩子，在 `Bash` 工具调用时触发
 
 #### OpenCode
@@ -729,8 +729,8 @@ graphify-rs install --platform opencode
 ```
 
 `opencode install` 创建的内容：
-- `./AGENTS.md` — 追加 `## graphify` 章节，包含智能体规则
-- `.opencode/plugins/graphify.js` — PreToolUse 插件
+- `./AGENTS.md` — 追加 `## graphify-rs` 章节，包含智能体规则
+- `.opencode/plugins/graphify-rs.js` — PreToolUse 插件
 - `opencode.json` — 注册插件
 
 #### CodeBuddy
@@ -747,7 +747,7 @@ graphify-rs install --platform codebuddy
 ```
 
 `codebuddy install` 创建的内容：
-- `./AGENTS.md` — 追加 `## graphify` 章节，包含智能体规则
+- `./AGENTS.md` — 追加 `## graphify-rs` 章节，包含智能体规则
 - `.codebuddy/settings.json` — 添加 `PreToolUse` 钩子，在 `Glob|Grep` 工具调用时触发
 
 #### Claw / Droid / Trae / Trae CN
@@ -757,7 +757,7 @@ graphify-rs claw install       # 或 droid、trae、trae-cn
 graphify-rs build
 ```
 
-这些平台使用通用集成，仅将 `## graphify` 章节写入 `./AGENTS.md`。
+这些平台使用通用集成，仅将 `## graphify-rs` 章节写入 `./AGENTS.md`。
 
 ### 智能体如何使用图谱
 
@@ -781,7 +781,7 @@ graphify-rs build
 ```json
 {
   "mcpServers": {
-    "graphify": {
+    "graphify-rs": {
       "command": "graphify-rs",
       "args": ["serve"]
     }
@@ -796,7 +796,7 @@ graphify-rs build
 ```json
 {
   "mcpServers": {
-    "graphify": {
+    "graphify-rs": {
       "command": "graphify-rs",
       "args": ["serve"]
     }

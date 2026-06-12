@@ -9,17 +9,17 @@ use std::path::Path;
 use thiserror::Error;
 
 /// Marker delimiters used to identify the graphify hook block.
-const HOOK_MARKER_START: &str = "# graphify-hook-start";
-const HOOK_MARKER_END: &str = "# graphify-hook-end";
+const HOOK_MARKER_START: &str = "# graphify-rs-hook-start";
+const HOOK_MARKER_END: &str = "# graphify-rs-hook-end";
 
 /// The hook script block injected into git hooks.
 const HOOK_SCRIPT: &str = r"
-# graphify-hook-start
+# graphify-rs-hook-start
 # Auto-run graphify-rs AST extraction on commit (code-only, no LLM)
 if command -v graphify-rs >/dev/null 2>&1; then
-  graphify-rs build --code-only --output graphify-out &
+  graphify-rs build --code-only --output graphify-rs-out &
 fi
-# graphify-hook-end
+# graphify-rs-hook-end
 ";
 
 /// Hook names that graphify manages.
@@ -201,18 +201,20 @@ mod tests {
 
     #[test]
     fn test_strip_marker_block() {
-        let input = "#!/bin/sh\n# graphify-hook-start\nsome stuff\n# graphify-hook-end\nother";
+        let input =
+            "#!/bin/sh\n# graphify-rs-hook-start\nsome stuff\n# graphify-rs-hook-end\nother";
         let result = strip_marker_block(input);
         assert_eq!(result, "#!/bin/shother");
 
-        let input2 = "#!/bin/sh\n\n# graphify-hook-start\nsome stuff\n# graphify-hook-end\nother";
+        let input2 =
+            "#!/bin/sh\n\n# graphify-rs-hook-start\nsome stuff\n# graphify-rs-hook-end\nother";
         let result2 = strip_marker_block(input2);
         assert_eq!(result2, "#!/bin/sh\nother");
     }
 
     #[test]
     fn test_strip_marker_block_no_end() {
-        let input = "#!/bin/sh\n# graphify-hook-start\norphan";
+        let input = "#!/bin/sh\n# graphify-rs-hook-start\norphan";
         let result = strip_marker_block(input);
         assert_eq!(result, "#!/bin/sh\n");
     }

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-06-04
+
+### Fixed
+- **js plugin renamed** — plugin js files renamed from `graphify.js` to `graphify-rs.js` (breaking change)
+- **config renamed** — directory-level configuration file renamed from `graphify.toml` to `graphify-rs.toml` (breaking change)
+- **MD section markers renamed** — many markers injected into MD files renamed from `graphify` to `graphify-rs` (breaking change)
+- **git hook marker renamed** — git hook marker renamed from `graphify-hook-...` to `graphify-rs-hook...` (breaking change)
+- **Version staleness check** — warns on startup if installed skill is from an older version
+  - `.graphify_version` stamp name — changed to `.graphify_rs_version` (breaking change)
+- **default output directory name changed** — from `graphify-out` to `graphify-rs-out` (breaking change)
+
 ## [0.8.0] - 2026-06-04
 
 ### Added
