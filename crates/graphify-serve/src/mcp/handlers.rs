@@ -554,7 +554,7 @@ pub(crate) fn handle_explore(graph: &KnowledgeGraph, index: &SearchIndex, args: 
     }
 
     let mut sorted_files: Vec<_> = file_groups.into_iter().collect();
-    sorted_files.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+    sorted_files.sort_by_key(|b| std::cmp::Reverse(b.1.len()));
     sorted_files.truncate(max_files);
 
     let char_budget = budget * 4;
