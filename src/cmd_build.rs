@@ -17,7 +17,6 @@ pub async fn cmd_build(
     output: &str,
     no_llm: bool,
     code_only: bool,
-    update: bool,
     formats: &[String],
     verb: Verbosity,
     jobs: Option<usize>,
@@ -28,9 +27,7 @@ pub async fn cmd_build(
     let output_dir = PathBuf::from(output);
     let cache_dir = output_dir.join("cache");
 
-    let all_formats = [
-        "json", "html", "graphml", "cypher", "svg", "wiki", "obsidian", "report",
-    ];
+    let all_formats = ["json", "report"];
     let selected: Vec<&str> = if formats.is_empty() {
         all_formats.to_vec()
     } else {
@@ -38,7 +35,32 @@ pub async fn cmd_build(
     };
     let should_export = |name: &str| selected.iter().any(|s| s.eq_ignore_ascii_case(name));
 
-    let detection = step_detect(&root, &output_dir, update, verb)?;
+    let (detection, changed) = step_detect(&root, &output_dir, verb)?;
+
+    if !changed {
+        let all_outputs_present = selected.iter().all(|fmt| {
+            let p = match *fmt {
+                "json" => output_dir.join("graph.json"),
+                "report" => output_dir.join("GRAPH_REPORT.md"),
+                "html" => output_dir.join("graph.html"),
+                "svg" => output_dir.join("graph.svg"),
+                "graphml" => output_dir.join("graph.graphml"),
+                "cypher" => output_dir.join("graph.cypher"),
+                "wiki" => output_dir.join("wiki"),
+                "obsidian" => output_dir.join("obsidian"),
+                _ => return false, // unknown format → always rebuild
+            };
+            p.exists()
+        });
+        if all_outputs_present {
+            info_print!(
+                verb,
+                "  {} No files changed, skipping rebuild.",
+                "✓".green()
+            );
+            return Ok(());
+        }
+    }
 
     let mut extractions = step_extract_ast(&root, &cache_dir, &detection, code_only, verb)?;
 
@@ -114,16 +136,18 @@ pub async fn cmd_build(
 fn step_detect(
     root: &Path,
     output_dir: &Path,
-    update: bool,
     verb: Verbosity,
-) -> Result<graphify_detect::DetectResult> {
+) -> Result<(graphify_detect::DetectResult, bool)> {
     info_print!(verb, "  {} files...", "Detecting".cyan());
-    let detection = if update {
-        let manifest_path = output_dir.join(".graphify_manifest.json");
-        graphify_detect::detect_incremental(root, Some(manifest_path.to_str().unwrap_or("")))
-    } else {
-        graphify_detect::detect(root)
-    };
+    // Ensure output_dir exists so detect_fast can persist changeindex.json on first run.
+    std::fs::create_dir_all(output_dir).with_context(|| {
+        format!(
+            "failed to create output directory: {}",
+            output_dir.display()
+        )
+    })?;
+    let index_path = output_dir.join(graphify_detect::changeindex::CHANGEINDEX_NAME);
+    let (detection, changed) = graphify_detect::detect_fast(root, &index_path);
     let n_code = detection
         .files
         .get(&graphify_detect::FileType::Code)
@@ -161,7 +185,7 @@ fn step_detect(
             detection.skipped_sensitive.len()
         );
     }
-    Ok(detection)
+    Ok((detection, changed))
 }
 
 fn step_extract_ast(
@@ -315,22 +339,57 @@ async fn step_extract_semantic(
                 graphify_extract::semantic::LLMProvider::Ollama => "Ollama",
                 graphify_extract::semantic::LLMProvider::OpenAICompatible => "OpenAI-compatible",
             };
-            info_print!(
-                verb,
-                "  {} on {} doc/paper files via {} ({})...",
-                "Semantic extraction".cyan(),
-                doc_files.len(),
-                provider_name,
-                config.model,
-            );
+
+            // Pre-split: serve cache hits immediately, collect only paths for uncached files.
+            // File contents are read inside each task after acquiring the semaphore so at most
+            // `concurrency` files are in memory at once.
+            let mut to_process: Vec<PathBuf> = Vec::new();
+            for doc_path in &doc_files {
+                if let Some(cached) = graphify_cache::load_cached_from::<
+                    graphify_core::model::ExtractionResult,
+                >(doc_path, root, cache_dir)
+                {
+                    extractions.push(cached);
+                    continue;
+                }
+                to_process.push(doc_path.clone());
+            }
+            let cached_count = doc_files.len() - to_process.len();
+
+            if to_process.is_empty() {
+                if cached_count > 0 {
+                    info_print!(
+                        verb,
+                        "  {} {} doc/paper files (all cached)",
+                        "Semantic extraction".cyan(),
+                        cached_count,
+                    );
+                }
+            } else {
+                let cache_note = if cached_count > 0 {
+                    format!(", {} cached", cached_count)
+                } else {
+                    String::new()
+                };
+                info_print!(
+                    verb,
+                    "  {} on {} doc/paper files via {} ({}){} ...",
+                    "Semantic extraction".cyan(),
+                    to_process.len(),
+                    provider_name,
+                    config.model,
+                    cache_note,
+                );
+            }
+
             let concurrency = jobs.unwrap_or(4).min(8);
             let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(concurrency));
             let rt = tokio::runtime::Handle::current();
 
-            let pb_sem = if verb.is_quiet() {
+            let pb_sem = if verb.is_quiet() || to_process.is_empty() {
                 None
             } else {
-                let pb = ProgressBar::new(doc_files.len() as u64);
+                let pb = ProgressBar::new(to_process.len() as u64);
                 pb.set_style(
                     ProgressStyle::with_template(
                         "  {bar:40.green/dim} {pos}/{len} docs ({eta} remaining)",
@@ -342,31 +401,12 @@ async fn step_extract_semantic(
             };
 
             let mut handles = Vec::new();
-            for doc_path in &doc_files {
-                if let Some(cached) = graphify_cache::load_cached_from::<
-                    graphify_core::model::ExtractionResult,
-                >(doc_path, root, cache_dir)
-                {
-                    extractions.push(cached);
-                    if let Some(ref pb) = pb_sem {
-                        pb.inc(1);
-                    }
-                    continue;
-                }
-                let content = if let Ok(c) = std::fs::read_to_string(doc_path) {
-                    c
-                } else {
-                    if let Some(ref pb) = pb_sem {
-                        pb.inc(1);
-                    }
-                    continue;
-                };
-                let file_type = if doc_path.extension().and_then(|e| e.to_str()) == Some("pdf") {
+            for doc_p in to_process {
+                let file_type = if doc_p.extension().and_then(|e| e.to_str()) == Some("pdf") {
                     "paper"
                 } else {
                     "document"
                 };
-                let doc_p = doc_path.clone();
                 let cfg_clone = config.clone();
                 let sem_clone = sem.clone();
                 let handle = rt.spawn(async move {
@@ -374,18 +414,23 @@ async fn step_extract_semantic(
                         .acquire()
                         .await
                         .map_err(|e| anyhow::anyhow!("semaphore closed: {e}"))?;
-                    graphify_extract::semantic::extract_semantic(
+                    // Read content after acquiring the semaphore so at most `concurrency`
+                    // files are held in memory simultaneously.
+                    let content = tokio::fs::read_to_string(&doc_p)
+                        .await
+                        .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", doc_p.display()))?;
+                    let result = graphify_extract::semantic::extract_semantic(
                         &doc_p, &content, file_type, &cfg_clone,
                     )
-                    .await
-                    .map(|r| (doc_p, r))
+                    .await;
+                    Ok::<_, anyhow::Error>((doc_p, result))
                 });
                 handles.push(handle);
             }
 
             for handle in handles {
                 match handle.await {
-                    Ok(Ok((doc_p, sem_result))) => {
+                    Ok(Ok((doc_p, Ok(sem_result)))) => {
                         verbose_print!(
                             verb,
                             "    {} → {} nodes, {} edges",
@@ -397,8 +442,29 @@ async fn step_extract_semantic(
                             graphify_cache::save_cached_to(&doc_p, &sem_result, root, cache_dir);
                         extractions.push(sem_result);
                     }
-                    Ok(Err(e)) => {
+                    Ok(Ok((doc_p, Err(e)))) => {
                         verbose_print!(verb, "    {} semantic extraction: {}", "⚠".yellow(), e);
+                        // Only cache the empty result for permanent failures (e.g. malformed LLM
+                        // response). Transient failures (rate limits, network, timeouts) are left
+                        // uncached so the next build retries automatically.
+                        let err_lower = e.to_string().to_ascii_lowercase();
+                        let is_transient = err_lower.contains("rate limit")
+                            || err_lower.contains("429")
+                            || err_lower.contains("timeout")
+                            || err_lower.contains("timed out")
+                            || err_lower.contains("connection")
+                            || err_lower.contains("network");
+                        if !is_transient {
+                            let _ = graphify_cache::save_cached_to(
+                                &doc_p,
+                                &graphify_core::model::ExtractionResult::default(),
+                                root,
+                                cache_dir,
+                            );
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        verbose_print!(verb, "    {} semaphore error: {}", "⚠".yellow(), e);
                     }
                     Err(e) => {
                         verbose_print!(verb, "    {} task join error: {}", "⚠".yellow(), e);
@@ -653,17 +719,6 @@ fn step_export(
             obsidian_path.display().to_string().dimmed()
         );
     }
-
-    let manifest_path = output_dir.join(".graphify_manifest.json");
-    let manifest = graphify_detect::Manifest {
-        files: detection
-            .files
-            .iter()
-            .flat_map(|(ft, paths)| paths.iter().map(move |p| (p.clone(), *ft)))
-            .collect(),
-        hashes: HashMap::new(),
-    };
-    graphify_detect::save_manifest(&manifest_path, &manifest)?;
 
     Ok(())
 }

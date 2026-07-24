@@ -29,6 +29,7 @@ pub const DISPATCH: &[(&str, &str)] = &[
     (".jsx", "javascript"),
     (".ts", "typescript"),
     (".tsx", "typescript"),
+    (".vue", "javascript"),
     (".go", "go"),
     (".rs", "rust"),
     (".java", "java"),
@@ -139,6 +140,14 @@ pub fn extract(paths: &[PathBuf]) -> ExtractionResult {
 
             debug!("extracting {} ({})", path.display(), lang);
 
+            // Vue SFCs: isolate the <script> block so tree-sitter sees clean JS/TS.
+            let (source, lang) = if path.extension().and_then(|e| e.to_str()) == Some("vue") {
+                let (cleaned, detected_lang) = vue_extract_script(&source);
+                (cleaned, detected_lang)
+            } else {
+                (source, lang)
+            };
+
             let mut result = if let Some(ts_result) = treesitter::try_extract(path, &source, lang) {
                 debug!("used tree-sitter for {} ({})", path.display(), lang);
                 ts_result
@@ -189,6 +198,12 @@ fn resolve_python_imports(result: &mut ExtractionResult) {
         map
     };
 
+    let id_to_label: HashMap<&str, &str> = result
+        .nodes
+        .iter()
+        .map(|n| (n.id.as_str(), n.label.as_str()))
+        .collect();
+
     let mut stem_to_entity_ids: HashMap<String, Vec<String>> = HashMap::new();
     let defined_targets: HashSet<String> = result
         .edges
@@ -215,11 +230,7 @@ fn resolve_python_imports(result: &mut ExtractionResult) {
 
     for edge in &mut result.edges {
         if edge.relation == "imports" {
-            let import_label = result
-                .nodes
-                .iter()
-                .find(|n| n.id == edge.target)
-                .map_or("", |n| n.label.as_str());
+            let import_label = id_to_label.get(edge.target.as_str()).copied().unwrap_or("");
 
             if import_label.contains('*') {
                 // `from module import *` — expand to all entities in module
@@ -362,7 +373,9 @@ fn resolve_cross_file_imports(result: &mut ExtractionResult) {
         }
 
         let target_entities = match ext {
-            "js" | "jsx" | "ts" | "tsx" => resolve_jsts_import(import_label, &stem_to_entities),
+            "js" | "jsx" | "ts" | "tsx" | "vue" => {
+                resolve_jsts_import(import_label, &stem_to_entities)
+            }
             "go" => resolve_go_import(import_label, &stem_to_entities, &go_pkg_to_entities),
             "rs" => resolve_rust_import(import_label, &stem_to_entities),
             "java" => resolve_dot_import(import_label, &stem_to_entities),
@@ -840,6 +853,54 @@ fn resolve_dart_import<'a>(
     }
 
     Vec::new()
+}
+
+/// Extract the `<script>` block from a Vue SFC, blanking everything outside it.
+///
+/// Newlines are preserved throughout so line numbers in extracted nodes remain
+/// accurate. Returns the cleaned source and the detected language
+/// (`"typescript"` when the script tag carries `lang="ts"` or `lang='ts'`,
+/// `"javascript"` otherwise). Falls back to the original source if no script
+/// block is found.
+fn vue_extract_script(source: &[u8]) -> (Vec<u8>, &'static str) {
+    fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+        haystack.windows(needle.len()).position(|w| w == needle)
+    }
+
+    let Some(tag_start) = find_bytes(source, b"<script") else {
+        return (source.to_vec(), "javascript");
+    };
+    let Some(tag_end_rel) = find_bytes(&source[tag_start..], b">") else {
+        return (source.to_vec(), "javascript");
+    };
+    let tag_end = tag_start + tag_end_rel;
+    let tag_attrs = &source[tag_start..=tag_end];
+    let lang = if find_bytes(tag_attrs, b"lang=\"ts\"").is_some()
+        || find_bytes(tag_attrs, b"lang='ts'").is_some()
+    {
+        "typescript"
+    } else {
+        "javascript"
+    };
+
+    let content_start = tag_end + 1;
+    let Some(close_rel) = find_bytes(&source[content_start..], b"</script>") else {
+        return (source.to_vec(), lang);
+    };
+    let content_end = content_start + close_rel;
+
+    let mut cleaned = source.to_vec();
+    for b in &mut cleaned[..content_start] {
+        if *b != b'\n' {
+            *b = b' ';
+        }
+    }
+    for b in &mut cleaned[content_end..] {
+        if *b != b'\n' {
+            *b = b' ';
+        }
+    }
+    (cleaned, lang)
 }
 
 #[cfg(test)]
