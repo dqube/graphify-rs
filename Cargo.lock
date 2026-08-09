@@ -716,6 +716,7 @@ version = "0.8.2"
 dependencies = [
  "anyhow",
  "graphify-core",
+ "reqwest",
  "serde",
  "serde_json",
  "tempfile",

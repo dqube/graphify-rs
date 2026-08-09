@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`--no-viz` build flag** — skips HTML/SVG visualization even when requested via `--format`; outputs JSON and report only. Also settable as `no_viz` in `graphify-rs.toml`.
 - **`--cluster-only` build flag** — skips detection and both extraction passes; loads the existing `graph.json` from the output directory, re-runs Leiden clustering and analysis, and re-exports.
 - **`--mode deep` build flag** — adds an LLM semantic pass over the largest code files (up to 20), in addition to docs/papers. Deep-mode code results use a separate `<output>/cache/deep/` namespace so they can never be served to the AST pass of a later non-deep build. Also settable as `mode` in `graphify-rs.toml`.
+- **Live Neo4j push (`--neo4j-push`)** — pushes the built graph to a running Neo4j instance via the transactional HTTP API (`/db/{db}/tx/commit`), avoiding a Bolt driver dependency. Nodes and edges are `MERGE`d in 500-row `UNWIND` batches (idempotent re-pushes); a `GraphNode.id` uniqueness constraint is created on Neo4j 5+. Credentials come from `[neo4j]` in `graphify-rs.toml` with `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` / `NEO4J_DATABASE` env fallbacks; `bolt://` URIs are normalized to HTTP automatically. Passing `--neo4j-push` bypasses the no-change early-return so the push always runs; push failures are reported without failing the build.
 
 ## [0.8.2] - 2026-07-05
 

@@ -57,6 +57,9 @@ enum Commands {
         /// Inference mode: `deep` runs an extra LLM pass over the largest code files
         #[arg(long, value_parser = ["standard", "deep"])]
         mode: Option<String>,
+        /// Push the graph to a live Neo4j instance (config [neo4j] or NEO4J_* env vars)
+        #[arg(long)]
+        neo4j_push: bool,
         /// Export formats (comma-separated). Available: json,html,graphml,cypher,svg,wiki,obsidian,report. Default: json,report
         #[arg(long, value_delimiter = ',')]
         format: Vec<String>,
@@ -310,6 +313,7 @@ async fn main() -> Result<()> {
             no_viz,
             cluster_only,
             mode,
+            neo4j_push,
             format,
             max_viz_nodes,
         } => {
@@ -332,6 +336,19 @@ async fn main() -> Result<()> {
             } else {
                 format
             };
+            let neo4j_conn = if neo4j_push {
+                match app_cfg.neo4j.unwrap_or_default().resolve() {
+                    Some(conn) => Some(conn),
+                    None => {
+                        anyhow::bail!(
+                            "--neo4j-push requires credentials: set [neo4j] in graphify-rs.toml \
+                             or NEO4J_USER / NEO4J_PASSWORD environment variables"
+                        );
+                    }
+                }
+            } else {
+                None
+            };
 
             cmd_build::cmd_build(
                 &effective_path,
@@ -346,6 +363,7 @@ async fn main() -> Result<()> {
                 effective_no_viz,
                 cluster_only,
                 deep,
+                neo4j_conn,
             )
             .await?;
         }
@@ -500,6 +518,7 @@ async fn main() -> Result<()> {
                     false,
                     false,
                     false,
+                    None,
                 )
                 .await
                 .context("Auto-build failed")?;
@@ -822,6 +841,13 @@ fn cmd_init() -> Result<()> {
 
 # Inference mode: standard | deep (deep adds an LLM pass over largest code files)
 # mode = "standard"
+
+# Neo4j live push (--neo4j-push). Fields fall back to NEO4J_* env vars.
+# [neo4j]
+# uri = "http://localhost:7474"   # bolt:// URIs are mapped to HTTP automatically
+# user = "neo4j"
+# password = "..."
+# database = "neo4j"
 
 # Export formats (comma-separated). Available: json,html,graphml,cypher,svg,wiki,obsidian,report
 # Leave empty or omit for the default set (json, report).

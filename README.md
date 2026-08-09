@@ -153,6 +153,7 @@ graphify-rs build [--path .] [--no-llm] [--format json,html]   # build graph
 graphify-rs build --mode deep                                   # extra LLM pass over largest code files
 graphify-rs build --cluster-only                                # re-cluster existing graph.json
 graphify-rs build --no-viz                                      # skip HTML/SVG, JSON + report only
+graphify-rs build --neo4j-push                                  # push graph to live Neo4j
 graphify-rs query "question" [--dfs] [--budget 2000]            # query
 graphify-rs explain <node>                                      # node metadata, community, neighbors
 graphify-rs watch --path .                                       # auto-rebuild

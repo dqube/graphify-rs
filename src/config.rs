@@ -12,6 +12,41 @@ pub struct Config {
     pub mode: Option<String>,
     pub formats: Option<Vec<String>>,
     pub llm: Option<LLMConfig>,
+    pub neo4j: Option<Neo4jConfig>,
+}
+
+/// Neo4j connection settings from the `[neo4j]` section.
+///
+/// Every field falls back to an environment variable, so a partial section
+/// like `[neo4j]\npassword = "..."` works with env-provided host/user.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct Neo4jConfig {
+    pub uri: Option<String>,
+    pub user: Option<String>,
+    pub password: Option<String>,
+    pub database: Option<String>,
+}
+
+impl Neo4jConfig {
+    /// Merge this config with environment variables (`NEO4J_URI`,
+    /// `NEO4J_USER`, `NEO4J_PASSWORD`, `NEO4J_DATABASE`). Config values win.
+    /// Returns `None` when user or password is missing from both sources.
+    pub fn resolve(&self) -> Option<graphify_export::Neo4jConnection> {
+        let pick = |cfg: &Option<String>, env: &str| {
+            cfg.clone().or_else(|| std::env::var(env).ok())
+        };
+        let user = pick(&self.user, "NEO4J_USER")?;
+        let password = pick(&self.password, "NEO4J_PASSWORD")?;
+        Some(graphify_export::Neo4jConnection {
+            uri: pick(&self.uri, "NEO4J_URI")
+                .unwrap_or_else(|| graphify_export::neo4j::DEFAULT_URI.into()),
+            user,
+            password,
+            database: pick(&self.database, "NEO4J_DATABASE")
+                .unwrap_or_else(|| graphify_export::neo4j::DEFAULT_DATABASE.into()),
+        })
+    }
 }
 
 /// LLM provider configuration from `[llm]` section.

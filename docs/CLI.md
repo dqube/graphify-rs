@@ -59,6 +59,7 @@ Build the knowledge graph from files in a directory. This is the main pipeline: 
 | `--no-viz` | | `bool` | `false` | Skip HTML/SVG visualization; output JSON and report only (overrides `--format`). |
 | `--cluster-only` | | `bool` | `false` | Skip detection and extraction; re-run Leiden clustering on the existing `graph.json` and re-export. |
 | `--mode <MODE>` | | `standard` \| `deep` | `standard` | Inference mode. `deep` adds an LLM semantic pass over the largest code files (up to 20), cached under `<output>/cache/deep/`. |
+| `--neo4j-push` | | `bool` | `false` | Push the graph to a live Neo4j instance after export. Credentials from `[neo4j]` in `graphify-rs.toml` or `NEO4J_*` env vars. |
 | `--format <FMT,...>` | | `String` (comma-separated) | `json,report` | Export formats to generate. Available: `json`, `html`, `graphml`, `cypher`, `svg`, `wiki`, `obsidian`, `report`. |
 | `--max-viz-nodes <N>` | | `usize` | `2000` | Maximum nodes in HTML visualization. Larger values show more detail but may slow the browser. |
 
@@ -81,6 +82,10 @@ graphify-rs build --code-only
 
 # Deep inference: extra LLM pass over the largest code files
 graphify-rs build --mode deep
+
+# Push the graph to a live Neo4j instance
+export NEO4J_USER=neo4j NEO4J_PASSWORD=secret
+graphify-rs build --neo4j-push
 
 # Re-cluster the existing graph without re-extracting
 graphify-rs build --cluster-only
@@ -667,6 +672,19 @@ Configure the LLM provider for semantic extraction (Pass 2). When this section i
 | `ollama_base_url` | `String` | `http://localhost:11434` | Override Ollama API endpoint. |
 | `openai_compatible_api_key` | `String` | — | Optional API key for OpenAI-compatible endpoint. |
 | `openai_compatible_base_url` | `String` | *required* | Base URL for OpenAI-compatible endpoint (e.g., vLLM, LM Studio). |
+
+### Neo4j Configuration (`[neo4j]`)
+
+Connection settings for `--neo4j-push`. Every field falls back to an environment variable; config values win. The push uses Neo4j's transactional HTTP API with `MERGE` semantics (idempotent re-pushes), batched 500 rows per statement.
+
+| Field | Type | Env fallback | Default | Description |
+|-------|------|-------------|---------|-------------|
+| `uri` | `String` | `NEO4J_URI` | `http://localhost:7474` | HTTP endpoint. `bolt://` / `neo4j://` URIs are mapped to HTTP automatically (port 7687 → 7474). |
+| `user` | `String` | `NEO4J_USER` | *required* | Neo4j username. |
+| `password` | `String` | `NEO4J_PASSWORD` | *required* | Neo4j password. |
+| `database` | `String` | `NEO4J_DATABASE` | `neo4j` | Target database name. |
+
+Pushed layout: nodes become `(:GraphNode {id, label, type, file, location, community})`, edges become `[:GRAPH_REL {relation, confidence, score, file}]`. A uniqueness constraint on `GraphNode.id` is created when the server supports it (Neo4j 5+). Push failures are reported but do not fail the build — local exports are already on disk.
 
 ### LLM Examples
 

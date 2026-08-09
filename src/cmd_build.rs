@@ -25,6 +25,7 @@ pub async fn cmd_build(
     no_viz: bool,
     cluster_only: bool,
     deep: bool,
+    neo4j_conn: Option<graphify_export::Neo4jConnection>,
 ) -> Result<()> {
     let root = PathBuf::from(path);
     let output_dir = PathBuf::from(output);
@@ -50,13 +51,18 @@ pub async fn cmd_build(
             &output_dir,
             max_viz_nodes,
             &should_export,
+            neo4j_conn.as_ref(),
             verb,
-        );
+        )
+        .await;
     }
 
     let (detection, changed) = step_detect(&root, &output_dir, verb)?;
 
-    if !changed {
+    // A requested Neo4j push forces the pipeline to run even when nothing
+    // changed — the push is the point of the invocation. The AST cache keeps
+    // this cheap.
+    if !changed && neo4j_conn.is_none() {
         let all_outputs_present = selected.iter().all(|fmt| {
             let p = match *fmt {
                 "json" => output_dir.join("graph.json"),
@@ -135,6 +141,10 @@ pub async fn cmd_build(
         verb,
     )?;
 
+    if let Some(ref conn) = neo4j_conn {
+        step_neo4j_push(&graph, conn, verb).await;
+    }
+
     info_print!(
         verb,
         "\n{} Output in {}",
@@ -147,11 +157,12 @@ pub async fn cmd_build(
 
 /// `--cluster-only`: load an existing graph.json, re-run Leiden clustering and
 /// analysis, then re-export. Skips detection and both extraction passes.
-fn cmd_cluster_only(
+async fn cmd_cluster_only(
     root: &Path,
     output_dir: &Path,
     max_viz_nodes: Option<usize>,
     should_export: &impl Fn(&str) -> bool,
+    neo4j_conn: Option<&graphify_export::Neo4jConnection>,
     verb: Verbosity,
 ) -> Result<()> {
     let graph_path = output_dir.join("graph.json");
@@ -207,6 +218,10 @@ fn cmd_cluster_only(
         verb,
     )?;
 
+    if let Some(conn) = neo4j_conn {
+        step_neo4j_push(&graph, conn, verb).await;
+    }
+
     info_print!(
         verb,
         "\n{} Re-clustered graph in {}",
@@ -215,6 +230,34 @@ fn cmd_cluster_only(
     );
 
     Ok(())
+}
+
+/// Push the built graph to a live Neo4j instance (`--neo4j-push`).
+/// Push failures are reported but do not fail the build — local exports
+/// are already on disk at this point.
+async fn step_neo4j_push(
+    graph: &graphify_core::graph::KnowledgeGraph,
+    conn: &graphify_export::Neo4jConnection,
+    verb: Verbosity,
+) {
+    info_print!(
+        verb,
+        "  {} graph to Neo4j at {} (db: {})...",
+        "Pushing".cyan(),
+        conn.uri,
+        conn.database
+    );
+    match graphify_export::push_to_neo4j(graph, conn).await {
+        Ok(stats) => info_print!(
+            verb,
+            "  {} Pushed {} nodes, {} edges in {} batch(es)",
+            "✓".green(),
+            stats.nodes.to_string().bold(),
+            stats.edges.to_string().bold(),
+            stats.batches
+        ),
+        Err(e) => info_print!(verb, "  {} Neo4j push failed: {}", "✗".red().bold(), e),
+    }
 }
 
 /// Shared analyze + export tail of the build pipeline.

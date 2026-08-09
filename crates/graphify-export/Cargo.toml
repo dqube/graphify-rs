@@ -10,6 +10,7 @@ description = "Multi-format export (JSON, HTML, SVG, GraphML, Cypher) for graphi
 graphify-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+reqwest.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
