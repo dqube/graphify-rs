@@ -60,7 +60,7 @@ Build the knowledge graph from files in a directory. This is the main pipeline: 
 | `--cluster-only` | | `bool` | `false` | Skip detection and extraction; re-run Leiden clustering on the existing `graph.json` and re-export. |
 | `--mode <MODE>` | | `standard` \| `deep` | `standard` | Inference mode. `deep` adds an LLM semantic pass over the largest code files (up to 20), cached under `<output>/cache/deep/`. |
 | `--neo4j-push` | | `bool` | `false` | Push the graph to a live Neo4j instance after export. Credentials from `[neo4j]` in `graphify-rs.toml` or `NEO4J_*` env vars. |
-| `--format <FMT,...>` | | `String` (comma-separated) | `json,report` | Export formats to generate. Available: `json`, `html`, `graphml`, `cypher`, `svg`, `wiki`, `obsidian`, `report`. |
+| `--format <FMT,...>` | | `String` (comma-separated) | `json,report` | Export formats to generate. Available: `json`, `html`, `callflow-html`, `graphml`, `cypher`, `svg`, `wiki`, `obsidian`, `report`. `callflow-html` writes `callflow.html`, a call-flow architecture document with per-section Mermaid flowcharts and call tables; it picks up `GRAPH_REPORT.md` for a highlights card when `report` is also selected. |
 | `--max-viz-nodes <N>` | | `usize` | `2000` | Maximum nodes in HTML visualization. Larger values show more detail but may slow the browser. |
 
 Rebuilds are incremental by default: `changeindex.json` tracks file hashes and the build short-circuits when nothing changed.
@@ -141,6 +141,43 @@ graphify-rs explain cmd_build --graph my-graph/graph.json
 ```
 
 Unknown names produce "did you mean" suggestions ranked by degree.
+
+---
+
+### `graphify-rs path`
+
+Show the shortest connection between two nodes. Traversal is undirected, so a path may cross an edge against the direction it was recorded in; each hop is rendered with the stored direction (`-->` forward, `<--` backward) plus the relation and confidence.
+
+#### Parameters
+
+| Argument / Flag | Type | Default | Description |
+|-----------------|------|---------|-------------|
+| `<SOURCE>` | `String` | (required) | Source node name or ID. Resolved the same way as `explain`. |
+| `<TARGET>` | `String` | (required) | Target node name or ID. |
+| `--graph <PATH>` | `String` | `graphify-rs-out/graph.json` | Path to the graph JSON file. |
+
+#### Examples
+
+```bash
+# How is the build command connected to the exporter?
+graphify-rs path cmd_build step_export
+
+# Quote multi-word labels
+graphify-rs path "auth middleware" "user cache"
+```
+
+Sample output:
+
+```
+Shortest path (3 hops):
+  design --references [Extracted]--> widget --defines [Extracted]--> Widget --defines [Extracted]--> .render()
+```
+
+Behavior notes:
+
+- When both arguments resolve to the same node the command errors, since a zero-hop answer is almost never what was meant. Use a more specific label or the exact node ID.
+- When a query's top match is a coin flip against the runner-up (same match kind, same node kind, near-equal degree), a `warning:` line naming both goes to stderr.
+- Disconnected endpoints print a "no path found" message and exit successfully — that is an answer, not an error.
 
 ---
 
@@ -509,7 +546,7 @@ Generated file:
 # Only process code files (skip docs/papers)
 # code_only = false
 
-# Export formats (comma-separated). Available: json,html,graphml,cypher,svg,wiki,obsidian,report
+# Export formats (comma-separated). Available: json,html,callflow-html,graphml,cypher,svg,wiki,obsidian,report
 # Leave empty or omit for all formats.
 # formats = ["json", "html", "report"]
 

@@ -10,7 +10,9 @@
 pub mod ast_extract;
 pub mod dedup;
 pub mod lang_config;
+pub mod markdown_links;
 pub mod parser;
+pub mod rationale;
 pub mod semantic;
 pub mod treesitter;
 
@@ -203,6 +205,15 @@ pub fn extract(paths: &[PathBuf]) -> ExtractionResult {
                 ast_extract::extract_file(path, source_str.as_ref(), lang)
             };
             dedup::dedup_file(&mut result);
+
+            // Post-pass: rationale comments, docstrings, and ADR/RFC citations.
+            // Runs after dedup so its file-anchored nodes are not collapsed
+            // into the code nodes they annotate.
+            let source_str = String::from_utf8_lossy(&source);
+            let existing: HashSet<&str> = result.nodes.iter().map(|n| n.id.as_str()).collect();
+            let extra = rationale::extract_rationale(path, source_str.as_ref(), lang, &existing);
+            result.nodes.extend(extra.nodes);
+            result.edges.extend(extra.edges);
 
             Some(result)
         })

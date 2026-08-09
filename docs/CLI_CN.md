@@ -56,7 +56,7 @@ graphify-rs -q -j 2 serve               # 静默模式，2 个线程
 | `--no-llm` | | `bool` | `false` | 跳过 LLM 语义提取（第二遍），仅运行 AST 提取。 |
 | `--code-only` | | `bool` | `false` | 仅处理代码文件，跳过文档和论文。 |
 | `--update` | | `bool` | `false` | 增量重建：仅重新提取自上次构建以来新增/修改的文件。 |
-| `--format <FMT,...>` | | `String`（逗号分隔） | 所有格式 | 要生成的导出格式。可选：`json`、`html`、`graphml`、`cypher`、`svg`、`wiki`、`obsidian`、`report`。 |
+| `--format <FMT,...>` | | `String`（逗号分隔） | 所有格式 | 要生成的导出格式。可选：`json`、`html`、`callflow-html`、`graphml`、`cypher`、`svg`、`wiki`、`obsidian`、`report`。`callflow-html` 生成 `callflow.html`——包含分节 Mermaid 流程图与调用明细表的调用流架构文档；若同时选择 `report`，会读取 `GRAPH_REPORT.md` 生成摘要卡片。 |
 | `--max-viz-nodes <N>` | | `usize` | `2000` | HTML 可视化最大节点数。更大的值显示更多细节但可能拖慢浏览器。 |
 
 #### 示例
@@ -464,7 +464,7 @@ graphify-rs init
 # Only process code files (skip docs/papers)
 # code_only = false
 
-# Export formats (comma-separated). Available: json,html,graphml,cypher,svg,wiki,obsidian,report
+# Export formats (comma-separated). Available: json,html,callflow-html,graphml,cypher,svg,wiki,obsidian,report
 # Leave empty or omit for all formats.
 # formats = ["json", "html", "report"]
 ```

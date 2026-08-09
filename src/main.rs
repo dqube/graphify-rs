@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 mod cmd_build;
 mod cmd_explain;
+mod cmd_path;
 mod config;
 mod install;
 mod paths;
@@ -60,7 +61,7 @@ enum Commands {
         /// Push the graph to a live Neo4j instance (config [neo4j] or NEO4J_* env vars)
         #[arg(long)]
         neo4j_push: bool,
-        /// Export formats (comma-separated). Available: json,html,graphml,cypher,svg,wiki,obsidian,report. Default: json,report
+        /// Export formats (comma-separated). Available: json,html,callflow-html,graphml,cypher,svg,wiki,obsidian,report. Default: json,report
         #[arg(long, value_delimiter = ',')]
         format: Vec<String>,
         /// Maximum nodes in HTML visualization (default: 2000). Larger values may slow browser.
@@ -79,6 +80,16 @@ enum Commands {
         dfs: bool,
         #[arg(long, default_value_t = 2000)]
         budget: usize,
+        #[arg(long)]
+        graph: Option<String>,
+    },
+    /// Show the shortest path between two nodes
+    Path {
+        /// Source node name or ID
+        source: String,
+        /// Target node name or ID
+        target: String,
+        /// Path to graph.json (default: graphify-rs-out/graph.json)
         #[arg(long)]
         graph: Option<String>,
     },
@@ -385,6 +396,19 @@ async fn main() -> Result<()> {
                     .to_string()
             });
             cmd_query(&question, dfs, budget, &graph_path)?;
+        }
+        Commands::Path {
+            source,
+            target,
+            graph,
+        } => {
+            let graph_path = graph.unwrap_or_else(|| {
+                paths::resolve_default_output(Path::new("."))
+                    .join("graph.json")
+                    .to_string_lossy()
+                    .to_string()
+            });
+            cmd_path::cmd_path(&source, &target, &graph_path)?;
         }
         Commands::Explain { node, graph } => {
             let graph_path = graph.unwrap_or_else(|| {
@@ -856,7 +880,7 @@ fn cmd_init() -> Result<()> {
 # [media]
 # model = "~/.graphify-rs/models/ggml-base.en.bin"  # whisper.cpp GGML path, or model name for the Python CLI
 
-# Export formats (comma-separated). Available: json,html,graphml,cypher,svg,wiki,obsidian,report
+# Export formats (comma-separated). Available: json,html,callflow-html,graphml,cypher,svg,wiki,obsidian,report
 # Leave empty or omit for the default set (json, report).
 # formats = ["json", "html", "report"]
 

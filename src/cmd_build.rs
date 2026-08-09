@@ -40,7 +40,11 @@ pub async fn cmd_build(
     };
     let should_export = |name: &str| {
         // --no-viz suppresses visual formats even when explicitly requested.
-        if no_viz && (name.eq_ignore_ascii_case("html") || name.eq_ignore_ascii_case("svg")) {
+        if no_viz
+            && (name.eq_ignore_ascii_case("html")
+                || name.eq_ignore_ascii_case("svg")
+                || name.eq_ignore_ascii_case("callflow-html"))
+        {
             return false;
         }
         selected.iter().any(|s| s.eq_ignore_ascii_case(name))
@@ -69,6 +73,7 @@ pub async fn cmd_build(
                 "json" => output_dir.join("graph.json"),
                 "report" => output_dir.join("GRAPH_REPORT.md"),
                 "html" => output_dir.join("graph.html"),
+                "callflow-html" => output_dir.join("callflow.html"),
                 "svg" => output_dir.join("graph.svg"),
                 "graphml" => output_dir.join("graph.graphml"),
                 "cypher" => output_dir.join("graph.cypher"),
@@ -91,6 +96,9 @@ pub async fn cmd_build(
     let mut extractions = step_extract_ast(&root, &cache_dir, &detection, code_only, verb)?;
 
     if !code_only {
+        if let Some(md_result) = step_markdown_links(&root, &detection, verb) {
+            extractions.push(md_result);
+        }
         step_media(
             &root,
             &cache_dir,
@@ -487,6 +495,57 @@ fn step_extract_ast(
     Ok(vec![ast_result])
 }
 
+/// Markdown cross-reference step: emit `references` edges from `.md` documents
+/// to the project files they link to. Deterministic, so doc wiring shows up in
+/// every build regardless of LLM availability.
+///
+/// Returns `None` when the project has no markdown documents.
+fn step_markdown_links(
+    root: &Path,
+    detection: &graphify_detect::DetectResult,
+    verb: Verbosity,
+) -> Option<graphify_core::model::ExtractionResult> {
+    let is_markdown = |f: &str| {
+        Path::new(f).extension().is_some_and(|e| {
+            e.eq_ignore_ascii_case("md")
+                || e.eq_ignore_ascii_case("markdown")
+                || e.eq_ignore_ascii_case("mdx")
+        })
+    };
+    let md_files: Vec<PathBuf> = detection
+        .files
+        .get(&graphify_detect::FileType::Document)
+        .map(|v| {
+            v.iter()
+                .filter(|f| is_markdown(f))
+                .map(|f| root.join(f))
+                .collect()
+        })
+        .unwrap_or_default();
+    if md_files.is_empty() {
+        return None;
+    }
+
+    // Links may point at any file type (code, papers, images), so resolve
+    // against everything detection found.
+    let known_files: Vec<PathBuf> = detection
+        .files
+        .values()
+        .flatten()
+        .map(|f| root.join(f))
+        .collect();
+
+    let result =
+        graphify_extract::markdown_links::extract_markdown_links(root, &md_files, &known_files);
+    info_print!(
+        verb,
+        "  Markdown links: {} reference edge(s) from {} doc(s)",
+        result.edges.len().to_string().bold(),
+        md_files.len()
+    );
+    Some(result)
+}
+
 /// Media step: transcribe audio/video files with an external Whisper tool and
 /// add transcript nodes to the graph. When an LLM is configured, transcripts
 /// also go through semantic extraction (file_type "media").
@@ -714,9 +773,8 @@ async fn step_extract_semantic(
                 .flat_map(|v| v.iter().map(|f| root.join(f)))
                 .collect();
             // Prefer larger files — they carry the most design rationale.
-            code_files.sort_by_key(|p| {
-                std::cmp::Reverse(std::fs::metadata(p).map_or(0, |m| m.len()))
-            });
+            code_files
+                .sort_by_key(|p| std::cmp::Reverse(std::fs::metadata(p).map_or(0, |m| m.len())));
             code_files.truncate(DEEP_MODE_CODE_FILE_CAP);
             for p in code_files {
                 code_paths.insert(p.clone());
@@ -1017,6 +1075,17 @@ fn step_cluster(
     }
 }
 
+/// Human-readable project name for export headers: the directory name of the
+/// scanned root, resolving `.` and other relative paths against the cwd.
+fn project_display_name(root: &str) -> String {
+    let path = Path::new(root);
+    let resolved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    resolved
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "Project".to_string())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn step_export(
     graph: &graphify_core::graph::KnowledgeGraph,
@@ -1114,6 +1183,20 @@ fn step_export(
     if should_export("svg") {
         let svg_path = graphify_export::export_svg(graph, communities, output_dir)?;
         info_print!(verb, "  Wrote {}", svg_path.display().to_string().dimmed());
+    }
+
+    if should_export("callflow-html") {
+        let options = graphify_export::CallflowOptions {
+            project_name: project_display_name(root),
+            ..Default::default()
+        };
+        let callflow_path =
+            graphify_export::export_callflow_html(graph, community_labels, output_dir, &options)?;
+        info_print!(
+            verb,
+            "  Wrote {}",
+            callflow_path.display().to_string().dimmed()
+        );
     }
 
     if should_export("wiki") {

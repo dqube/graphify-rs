@@ -19,11 +19,11 @@ Source Files → detect → extract → build → cluster → analyze → export
 |-------|---------|---------------|
 | `graphify-core` | Data models, graph structure, ID generation, confidence system | `KnowledgeGraph`, `GraphNode`, `GraphEdge` |
 | `graphify-detect` | File discovery, classification, `.graphifyignore`, sensitive file filtering | `classify_file()`, `is_sensitive()` |
-| `graphify-extract` | AST extraction (37 languages via tree-sitter + regex), multi-provider LLM semantic extraction | `extract()`, `extract_file()`, `resolve_cross_file_imports()` |
+| `graphify-extract` | AST extraction (37 languages via tree-sitter + regex), markdown cross-references, rationale comments and ADR/RFC citations, multi-provider LLM semantic extraction | `extract()`, `extract_file()`, `extract_markdown_links()`, `extract_rationale()`, `resolve_cross_file_imports()` |
 | `graphify-build` | Graph assembly from extraction results, node/edge deduplication, CodeGraph SQLite edge merge | `build_from_extraction()`, `merge_codegraph_edges()` |
 | `graphify-cluster` | Leiden community detection, cohesion scoring, incremental re-clustering | `cluster()`, `cluster_incremental()`, `cohesion_score()` |
 | `graphify-analyze` | PageRank, dependency cycles, god nodes, surprising connections, graph embeddings, temporal risk | `pagerank()`, `detect_cycles()`, `god_nodes()` |
-| `graphify-export` | 9 formats: JSON, HTML, split HTML, SVG, GraphML, Cypher, Wiki, Report, Obsidian | `export_json()`, `export_html()` |
+| `graphify-export` | 10 formats: JSON, HTML, split HTML, call-flow HTML (Mermaid), SVG, GraphML, Cypher, Wiki, Report, Obsidian | `export_json()`, `export_html()`, `export_callflow_html()` |
 | `graphify-cache` | SHA256 content-hash caching for incremental rebuilds | `load_cached_from()`, `save_cached_to()` |
 | `graphify-security` | URL validation (SSRF), path traversal protection, label injection defense | `validate_url()`, `sanitize_path()` |
 | `graphify-ingest` | URL fetching: arXiv, tweets (oEmbed), PDFs, webpages | `ingest_url()` |

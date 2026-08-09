@@ -62,7 +62,7 @@ Rust rewrite of [graphify](https://github.com/safishamsi/graphify) (Python) — 
 | **AST parsing** | Regex only | 11 native tree-sitter + regex fallback |
 | **Community detection** | Louvain | **Leiden** (with refinement) |
 | **MCP server** | - | **16 tools** over JSON-RPC 2.0 |
-| **Export formats** | 7 | **9** (+ Obsidian, split HTML) |
+| **Export formats** | 7 | **10** (+ Obsidian, split HTML, call-flow HTML) |
 | **Extraction** | Sequential | **Parallel** (`rayon`, configurable `-j`) |
 
 ## How It Works
@@ -84,6 +84,10 @@ Rust rewrite of [graphify](https://github.com/safishamsi/graphify) (Python) — 
 ```
 
 **Pass 1 — AST extraction** (free, always runs): tree-sitter parses 21 languages into functions, classes, imports, calls; 16 more languages are covered by dedicated regex extractors. All edges tagged `EXTRACTED` (confidence 1.0).
+
+**Markdown cross-references** (free, always runs): `.md` documents are scanned for inline links (`[text](./other.md)`), reference-style definitions, and wiki links (`[[other-doc]]`), emitting `references` edges to the files they point at. External URLs and bare anchors are skipped; wiki links resolve only when the file stem is unambiguous. Edges tagged `EXTRACTED` (confidence 1.0).
+
+**Rationale & design references** (free, always runs): tagged comments (`# NOTE:`, `// WHY:`, `-- HACK:`, plus `IMPORTANT`/`RATIONALE`/`TODO`/`FIXME`) become concept nodes joined by `rationale_for` edges; Python docstrings attach to the module, class, or function they document. `ADR-0011` / `RFC 793` cited in comments become shared nodes, so every file citing the same decision record converges on one node via `cites` edges. Comment syntax is per-language, so this covers all 37 languages.
 
 **Pass 2 — Semantic extraction** (optional, `--no-llm` to skip): LLM API (Anthropic, OpenAI, Ollama, or OpenAI-compatible) discovers conceptual links, shared assumptions, design rationale. Edges tagged `INFERRED` (confidence 0.4–0.9). Configure via `[llm]` in `graphify-rs.toml`.
 
@@ -129,11 +133,11 @@ Agents auto-check the graph before architecture questions and rebuild after code
 | Crate | Role |
 |-------|------|
 | `graphify-core` | Data models, graph structure, confidence system |
-| `graphify-extract` | AST extraction (37 languages), multi-provider LLM semantic extraction |
+| `graphify-extract` | AST extraction (37 languages), markdown cross-references, rationale + ADR/RFC citations, multi-provider LLM semantic extraction |
 | `graphify-cluster` | Leiden community detection, incremental re-clustering |
 | `graphify-analyze` | PageRank, cycles, embeddings, god nodes, temporal risk |
 | `graphify-serve` | MCP server (16 tools), smart summarization, full-text search index |
-| `graphify-export` | 9 formats: JSON, HTML, SVG, GraphML, Cypher, Wiki, Obsidian, Report |
+| `graphify-export` | 10 formats: JSON, HTML, callflow architecture HTML, SVG, GraphML, Cypher, Wiki, Obsidian, Report |
 | + 8 more | Cache, security, ingestion, watch, hooks, benchmark, detect, build |
 
 ## Output Formats
@@ -142,6 +146,7 @@ Agents auto-check the graph before architecture questions and rebuild after code
 |------|-------------|
 | `graph.json` | NetworkX-compatible `node_link_data` JSON |
 | `graph.html` | Interactive vis.js visualization (dark theme, auto-pruning) |
+| `callflow.html` | Call-flow architecture document: nav, per-section Mermaid flowcharts, call tables, zoom/pan |
 | `html/` | Per-community HTML pages with navigation |
 | `GRAPH_REPORT.md` | God nodes, surprising connections, suggested questions |
 | `graph.svg` / `graph.graphml` | Static visualization / graph editor import |
@@ -158,6 +163,7 @@ graphify-rs build --no-viz                                      # skip HTML/SVG,
 graphify-rs build --neo4j-push                                  # push graph to live Neo4j
 graphify-rs query "question" [--dfs] [--budget 2000]            # query
 graphify-rs explain <node>                                      # node metadata, community, neighbors
+graphify-rs path "<A>" "<B>"                                    # shortest connection between two nodes
 graphify-rs watch --path .                                       # auto-rebuild
 graphify-rs serve                                                 # MCP server
 graphify-rs diff old.json new.json                               # compare

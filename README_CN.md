@@ -39,7 +39,7 @@ AI 驱动的知识图谱构建工具 — 将代码、文档、论文和图片转
 | 语义提取 | 串行 | 并发，可配置并行数（`-j`）|
 | 社区检测 | Louvain (graspologic) | Leiden（手写实现，带细化阶段）|
 | MCP 服务器 | 无 | 16 个工具，JSON-RPC 2.0 stdio |
-| 导出格式 | 7 种 | 9 种（+ Obsidian 知识库、按社区拆分 HTML）|
+| 导出格式 | 7 种 | 10 种（+ Obsidian 知识库、按社区拆分 HTML、调用流 HTML）|
 | CLI | 基础 | 22 个子命令、`--quiet`/`--verbose`、Shell 补全 |
 | Watch 模式 | 全量重建 | 增量重建（仅变更文件重新提取）|
 
@@ -107,6 +107,14 @@ graphify-rs build                  # 添加 LLM 推断的 INFERRED 边
 
 使用 [tree-sitter](https://tree-sitter.github.io/) 将源代码解析为 AST，然后提取函数、类、导入和调用关系。支持 37 种语言，其中 14 种有原生 tree-sitter 语法（含 Vue/Svelte/Astro 经脚本块提取），其余走专用正则提取器。此轮的每条边标记为 `EXTRACTED`，置信度 1.0。
 
+**Markdown 交叉引用**（免费、始终运行）：
+
+扫描 `.md` 文档中的内联链接（`[文本](./other.md)`）、引用式定义和 wiki 链接（`[[other-doc]]`），为其指向的文件生成 `references` 边。外部 URL 和纯锚点会被跳过；wiki 链接仅在文件名唯一时才解析。此类边标记为 `EXTRACTED`，置信度 1.0。
+
+**设计理由与文档引用**（免费、始终运行）：
+
+带标记的注释（`# NOTE:`、`// WHY:`、`-- HACK:`，以及 `IMPORTANT`/`RATIONALE`/`TODO`/`FIXME`）会生成概念节点，并通过 `rationale_for` 边关联；Python 文档字符串会挂到对应的模块、类或函数节点上。注释中引用的 `ADR-0011` / `RFC 793` 会成为共享节点，使引用同一决策记录的所有文件通过 `cites` 边收敛到同一节点。注释语法按语言选择，覆盖全部 37 种语言。
+
 **第 2 轮 — LLM 语义提取**（可选，`--no-llm` 跳过）：
 
 将文档/论文/图片内容发送给 LLM API（支持 Anthropic、OpenAI、Ollama、OpenAI 兼容端点），发现语法本身无法揭示的高层关系 — 概念关联、共享假设、设计意图。此轮的边标记为 `INFERRED`，置信度 0.4–0.9。通过 `graphify-rs.toml` 的 `[llm]` 段配置。
@@ -141,11 +149,11 @@ graphify-rs build                  # 添加 LLM 推断的 INFERRED 边
 |-------|------|
 | `graphify-core` | 数据模型（`GraphNode`, `GraphEdge`, `KnowledgeGraph`）、ID 生成、置信度体系 |
 | `graphify-detect` | 文件发现、分类（code/doc/paper/image）、`.graphifyignore`、敏感文件过滤 |
-| `graphify-extract` | AST 提取（tree-sitter + 正则，37 种语言）、多 Provider LLM 语义提取、去重 |
+| `graphify-extract` | AST 提取（tree-sitter + 正则，37 种语言）、Markdown 交叉引用、设计理由与 ADR/RFC 引用、多 Provider LLM 语义提取、去重 |
 | `graphify-build` | 从提取结果组装图谱、节点/边去重 |
 | `graphify-cluster` | Leiden 社区检测、凝聚力评分、社区拆分/合并 |
 | `graphify-analyze` | 高连接节点、跨社区惊奇连接、建议问题、图谱 diff |
-| `graphify-export` | 9 种格式：JSON, HTML, 拆分 HTML, SVG, GraphML, Cypher, Wiki, 报告, Obsidian |
+| `graphify-export` | 10 种格式：JSON, HTML, 拆分 HTML, 调用流 HTML（Mermaid）, SVG, GraphML, Cypher, Wiki, 报告, Obsidian |
 | `graphify-cache` | SHA256 内容哈希缓存，支持增量重建 |
 | `graphify-security` | URL 校验（SSRF 防御）、路径遍历防护、标签注入防御 |
 | `graphify-ingest` | URL 抓取：arXiv 摘要、推文（oEmbed）、PDF、通用网页 |
@@ -160,6 +168,7 @@ graphify-rs build                  # 添加 LLM 推断的 INFERRED 边
 |------|------|
 | `graph.json` | 兼容 NetworkX `node_link_data` 的 JSON |
 | `graph.html` | vis.js 交互式可视化（暗色主题，大图自动裁剪）|
+| `callflow.html` | 调用流架构文档：导航栏、分节 Mermaid 流程图、调用明细表、缩放/平移 |
 | `html/` | 按社区拆分的 HTML 页面，带导航概览 |
 | `GRAPH_REPORT.md` | 分析报告：社区、God Nodes、惊奇连接、建议问题 |
 | `graph.svg` | 静态环形布局图谱可视化 |

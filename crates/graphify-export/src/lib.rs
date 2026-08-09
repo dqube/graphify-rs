@@ -1,8 +1,9 @@
 //! Multi-format export for graphify knowledge graphs.
 //!
-//! Supports JSON, HTML (interactive visualization), SVG, GraphML, Cypher
-//! (Neo4j), wiki-style markdown, and analysis reports.
+//! Supports JSON, HTML (interactive visualization), call-flow HTML (Mermaid),
+//! SVG, GraphML, Cypher (Neo4j), wiki-style markdown, and analysis reports.
 
+pub mod callflow;
 pub mod cypher;
 pub mod graphml;
 pub mod html;
@@ -13,6 +14,7 @@ pub mod report;
 pub mod svg;
 pub mod wiki;
 
+pub use callflow::{CallflowOptions, export_callflow_html};
 pub use cypher::export_cypher;
 pub use graphml::export_graphml;
 pub use html::export_html;

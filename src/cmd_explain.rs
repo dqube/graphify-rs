@@ -23,53 +23,100 @@ pub fn cmd_explain(node_query: &str, graph_path: &str) -> Result<()> {
     let graph = graphify_serve::load_graph(path)
         .with_context(|| format!("failed to load graph from {}", path.display()))?;
 
-    let node = match find_node(&graph, node_query) {
-        Some(n) => n,
-        None => {
-            let suggestions = suggest(&graph, node_query);
-            if suggestions.is_empty() {
-                bail!("no node matching '{node_query}' found in the graph");
-            }
-            bail!(
-                "no node matching '{node_query}'. Did you mean: {}",
-                suggestions.join(", ")
-            );
-        }
-    };
-
+    let node = resolve_node(&graph, node_query)?;
     print_explanation(&graph, node);
     Ok(())
 }
 
-/// Resolve a query string to a node: exact ID, exact label (case-insensitive),
-/// then substring match. On ties, prefer symbol nodes over file nodes, then
-/// the highest-degree candidate.
+/// Resolve a query to a node, or fail with suggestions.
+pub(crate) fn resolve_node<'g>(graph: &'g KnowledgeGraph, query: &str) -> Result<&'g GraphNode> {
+    if let Some(node) = find_node(graph, query) {
+        return Ok(node);
+    }
+    let suggestions = suggest(graph, query);
+    if suggestions.is_empty() {
+        bail!("no node matching '{query}' found in the graph");
+    }
+    bail!(
+        "no node matching '{query}'. Did you mean: {}",
+        suggestions.join(", ")
+    );
+}
+
+/// Best node matching `query`, if any.
 fn find_node<'g>(graph: &'g KnowledgeGraph, query: &str) -> Option<&'g GraphNode> {
-    if let Some(n) = graph.get_node(query) {
-        return Some(n);
+    rank_nodes(graph, query).into_iter().next().map(|(_, n)| n)
+}
+
+/// How well a node matched a query, ordered best-first by `Ord`.
+///
+/// Kept as separate fields rather than one blended number: the match kind and
+/// node kind are categorical, so collapsing them into a score with large
+/// constants would make every comparison look like a near-tie.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct MatchScore {
+    /// 3 = exact ID, 2 = exact label, 1 = substring.
+    pub tier: u8,
+    /// Symbol nodes outrank file nodes within a tier.
+    pub is_symbol: bool,
+    pub degree: usize,
+}
+
+impl MatchScore {
+    /// True when `other` is close enough that picking between them is a
+    /// coin flip: same kind of match, on a node of the same kind, with a
+    /// degree within `ratio` of this one.
+    pub(crate) fn is_close_to(self, other: Self, ratio: f64) -> bool {
+        if self.tier != other.tier || self.is_symbol != other.is_symbol {
+            return false;
+        }
+        if self.degree == 0 {
+            return other.degree == 0;
+        }
+        let gap = self.degree.saturating_sub(other.degree) as f64;
+        (gap / self.degree as f64) < ratio
     }
-    let rank = |n: &GraphNode| {
-        let is_file = matches!(n.node_type, graphify_core::model::NodeType::File);
-        (!is_file, graph.degree(&n.id))
+}
+
+/// Score every node matching `query`, best first.
+///
+/// Tiers: exact ID, then exact label (case-insensitive), then substring.
+/// Within a tier, symbol nodes outrank file nodes, then higher degree wins.
+pub(crate) fn rank_nodes<'g>(
+    graph: &'g KnowledgeGraph,
+    query: &str,
+) -> Vec<(MatchScore, &'g GraphNode)> {
+    let score = |n: &GraphNode, tier: u8| MatchScore {
+        tier,
+        is_symbol: !matches!(n.node_type, graphify_core::model::NodeType::File),
+        degree: graph.degree(&n.id),
     };
-    let q = query.to_lowercase();
-    let exact: Vec<&GraphNode> = graph
-        .nodes()
-        .into_iter()
-        .filter(|n| n.label.to_lowercase() == q)
-        .collect();
-    if !exact.is_empty() {
-        return exact.into_iter().max_by_key(|n| rank(n));
+
+    if let Some(node) = graph.get_node(query) {
+        return vec![(score(node, 3), node)];
     }
-    graph
+    let q = query.to_lowercase();
+    let mut scored: Vec<(MatchScore, &GraphNode)> = graph
         .nodes()
         .into_iter()
-        .filter(|n| n.label.to_lowercase().contains(&q))
-        .max_by_key(|n| rank(n))
+        .filter_map(|n| {
+            let label = n.label.to_lowercase();
+            let tier = if label == q {
+                2
+            } else if label.contains(&q) {
+                1
+            } else {
+                return None;
+            };
+            Some((score(n, tier), n))
+        })
+        .collect();
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
+    scored
 }
 
 /// Up to five label suggestions for a failed lookup.
-fn suggest(graph: &KnowledgeGraph, query: &str) -> Vec<String> {
+pub(crate) fn suggest(graph: &KnowledgeGraph, query: &str) -> Vec<String> {
     let q = query.to_lowercase();
     let mut partial: Vec<(&GraphNode, usize)> = graph
         .nodes()
@@ -156,11 +203,7 @@ type NeighborEntry = (String, f64, String);
 /// Neighbors grouped by relation name.
 type NeighborGroups<'a> = HashMap<&'a str, Vec<NeighborEntry>>;
 
-fn print_groups(
-    groups: &NeighborGroups<'_>,
-    title: &str,
-    arrow: &str,
-) {
+fn print_groups(groups: &NeighborGroups<'_>, title: &str, arrow: &str) {
     if groups.is_empty() {
         return;
     }
