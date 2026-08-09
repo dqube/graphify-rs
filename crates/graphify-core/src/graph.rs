@@ -291,20 +291,35 @@ impl KnowledgeGraph {
         // Cohesion cannot be recovered from the node-link format; callers that
         // need it must recompute via graphify_cluster::score_all.
         let mut community_nodes: HashMap<usize, Vec<String>> = HashMap::new();
+        // Community names are stored per-node as `community_name`, since the
+        // node-link format has no place for the community list itself. Recover
+        // them here so a reloaded graph still knows what its clusters are
+        // called — otherwise `explain` reports every community as unnamed.
+        let mut community_labels: HashMap<usize, String> = HashMap::new();
         for node_id in kg.node_ids() {
             if let Some(node) = kg.get_node(&node_id)
                 && let Some(cid) = node.community
             {
+                if let Some(name) = node
+                    .extra
+                    .get("community_name")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                {
+                    community_labels
+                        .entry(cid)
+                        .or_insert_with(|| name.to_string());
+                }
                 community_nodes.entry(cid).or_default().push(node_id);
             }
         }
         let mut infos: Vec<CommunityInfo> = community_nodes
             .into_iter()
             .map(|(id, nodes)| CommunityInfo {
+                label: community_labels.remove(&id),
                 id,
                 nodes,
                 cohesion: 0.0,
-                label: None,
             })
             .collect();
         infos.sort_by_key(|c| c.id);
@@ -383,6 +398,34 @@ mod tests {
         kg.add_node(make_node("a")).unwrap();
         let err = kg.add_edge(make_edge("a", "missing")).unwrap_err();
         assert!(matches!(err, GraphifyError::NodeNotFound(_)));
+    }
+
+    #[test]
+    fn community_labels_survive_a_roundtrip() {
+        // Names live on the nodes because the node-link format has nowhere
+        // else to put them; reloading must put them back on the community.
+        let mut kg = KnowledgeGraph::new();
+        for id in ["x", "y"] {
+            let mut node = make_node(id);
+            node.community = Some(3);
+            node.extra.insert(
+                "community_name".to_string(),
+                serde_json::Value::String("Auth & Sessions".to_string()),
+            );
+            kg.add_node(node).unwrap();
+        }
+        let mut orphan = make_node("z");
+        orphan.community = Some(4);
+        kg.add_node(orphan).unwrap();
+
+        let reloaded = KnowledgeGraph::from_node_link_json(&kg.to_node_link_json()).unwrap();
+        let named = reloaded.communities.iter().find(|c| c.id == 3).unwrap();
+        assert_eq!(named.label.as_deref(), Some("Auth & Sessions"));
+        assert_eq!(named.nodes.len(), 2);
+
+        // A community nobody named stays unnamed rather than inheriting one.
+        let unnamed = reloaded.communities.iter().find(|c| c.id == 4).unwrap();
+        assert_eq!(unnamed.label, None);
     }
 
     #[test]

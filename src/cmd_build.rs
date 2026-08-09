@@ -43,7 +43,8 @@ pub async fn cmd_build(
         if no_viz
             && (name.eq_ignore_ascii_case("html")
                 || name.eq_ignore_ascii_case("svg")
-                || name.eq_ignore_ascii_case("callflow-html"))
+                || name.eq_ignore_ascii_case("callflow-html")
+                || name.eq_ignore_ascii_case("tree"))
         {
             return false;
         }
@@ -74,6 +75,9 @@ pub async fn cmd_build(
                 "report" => output_dir.join("GRAPH_REPORT.md"),
                 "html" => output_dir.join("graph.html"),
                 "callflow-html" => output_dir.join("callflow.html"),
+                "tree" => output_dir.join("tree.html"),
+                "falkordb" => output_dir.join("graph.falkordb.cypher"),
+                "rdf" => output_dir.join("graph.ttl"),
                 "svg" => output_dir.join("graph.svg"),
                 "graphml" => output_dir.join("graph.graphml"),
                 "cypher" => output_dir.join("graph.cypher"),
@@ -1197,6 +1201,26 @@ fn step_export(
             "  Wrote {}",
             callflow_path.display().to_string().dimmed()
         );
+    }
+
+    if should_export("tree") {
+        let tree_path =
+            graphify_export::export_tree_html(graph, communities, community_labels, output_dir)?;
+        info_print!(verb, "  Wrote {}", tree_path.display().to_string().dimmed());
+    }
+
+    if should_export("falkordb") {
+        let falkor_path = graphify_export::export_falkordb(graph, output_dir)?;
+        info_print!(
+            verb,
+            "  Wrote {}",
+            falkor_path.display().to_string().dimmed()
+        );
+    }
+
+    if should_export("rdf") {
+        let rdf_path = graphify_export::export_rdf(graph, output_dir)?;
+        info_print!(verb, "  Wrote {}", rdf_path.display().to_string().dimmed());
     }
 
     if should_export("wiki") {

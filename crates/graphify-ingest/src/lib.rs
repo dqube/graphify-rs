@@ -193,16 +193,55 @@ async fn ingest_webpage(client: &Client, url: &str, out: &Path) -> Result<PathBu
     Ok(path)
 }
 
+/// How a saved result turned out, recorded for `reflect` to score.
+///
+/// `reflect` derives the sign of a lesson entirely from `outcome`, so an
+/// unmarked memory can never be corroborated into one. Both fields stay
+/// optional so `save-result` remains usable as a plain notebook.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ResultOutcome<'a> {
+    /// One of `useful`, `dead_end`, or `corrected`.
+    pub outcome: Option<&'a str>,
+    /// What the answer should have been. Only meaningful with `corrected`.
+    pub correction: Option<&'a str>,
+}
+
+/// Quote a value as a YAML double-quoted scalar.
+///
+/// Newlines are folded to spaces: the frontmatter parser is line-oriented, so
+/// a raw newline inside a value would be read as the start of a new key.
+fn yaml_quote(value: &str) -> String {
+    let escaped = value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace(['\n', '\r'], " ");
+    format!("\"{escaped}\"")
+}
+
+/// Stable 8-hex-digit digest of `text` (FNV-1a).
+///
+/// Deliberately not `DefaultHasher`, whose output is not guaranteed stable
+/// across Rust releases — these values end up in filenames on disk.
+fn short_hash(text: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in text.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{:08x}", (hash >> 32) as u32)
+}
+
 /// Save a query result (question + answer) to the memory directory.
 ///
 /// Used by the `save-result` CLI command to persist LLM query results
-/// for future reference.
+/// for future reference, and read back by `reflect`.
 pub fn save_query_result(
     question: &str,
     answer: &str,
     memory_dir: &Path,
     query_type: &str,
     source_nodes: Option<&[String]>,
+    outcome: ResultOutcome<'_>,
 ) -> Result<PathBuf, IngestError> {
     std::fs::create_dir_all(memory_dir)?;
 
@@ -211,14 +250,38 @@ pub fn save_query_result(
         .unwrap_or_default()
         .as_secs();
 
-    let filename = format!("{query_type}_{timestamp}.md");
+    // The timestamp alone is one-second resolution, so two saves in the same
+    // second used to land on one filename and silently overwrite. Mixing in a
+    // digest of the question keeps distinct questions apart while still
+    // letting a re-save of the same question replace its own file.
+    let filename = format!("{query_type}_{timestamp}_{}.md", short_hash(question));
     let path = memory_dir.join(&filename);
 
-    let nodes_str = source_nodes.map(|n| n.join(", ")).unwrap_or_default();
+    // Each node is quoted: an unquoted label containing a comma would be read
+    // back as two separate citations.
+    let nodes_str = source_nodes
+        .map(|nodes| {
+            nodes
+                .iter()
+                .map(|n| yaml_quote(n))
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default();
 
-    let content = format!(
-        "---\ntype: {query_type}\ntimestamp: {timestamp}\nnodes: [{nodes_str}]\n---\n\n## Question\n\n{question}\n\n## Answer\n\n{answer}\n"
+    let mut front = format!(
+        "type: {query_type}\ntimestamp: {timestamp}\nquestion: {}\nnodes: [{nodes_str}]\n",
+        yaml_quote(question)
     );
+    if let Some(value) = outcome.outcome {
+        front.push_str(&format!("outcome: {}\n", yaml_quote(value)));
+    }
+    if let Some(value) = outcome.correction {
+        front.push_str(&format!("correction: {}\n", yaml_quote(value)));
+    }
+
+    let content =
+        format!("---\n{front}---\n\n## Question\n\n{question}\n\n## Answer\n\n{answer}\n");
     std::fs::write(&path, content)?;
 
     info!("Saved query result: {} -> {}", query_type, path.display());
@@ -332,6 +395,7 @@ mod tests {
             tmp.path(),
             "query",
             Some(&["node1".to_string(), "node2".to_string()]),
+            ResultOutcome::default(),
         )
         .unwrap();
 
@@ -339,16 +403,97 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("What is Rust?"));
         assert!(content.contains("systems programming language"));
-        assert!(content.contains("node1, node2"));
+        assert!(content.contains(r#"nodes: ["node1", "node2"]"#));
         assert!(content.contains("type: query"));
+        // Unmarked results carry no outcome keys at all.
+        assert!(!content.contains("outcome:"));
     }
 
     #[test]
     fn test_save_query_result_no_nodes() {
         let tmp = tempfile::tempdir().unwrap();
-        let path = save_query_result("question", "answer", tmp.path(), "chat", None).unwrap();
+        let path = save_query_result(
+            "question",
+            "answer",
+            tmp.path(),
+            "chat",
+            None,
+            ResultOutcome::default(),
+        )
+        .unwrap();
 
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("nodes: []"));
+    }
+
+    #[test]
+    fn save_query_result_records_outcome_and_correction() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = save_query_result(
+            "where is auth?",
+            "in auth.rs",
+            tmp.path(),
+            "query",
+            None,
+            ResultOutcome {
+                outcome: Some("corrected"),
+                correction: Some("actually in session.rs"),
+            },
+        )
+        .unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains(r#"outcome: "corrected""#));
+        assert!(content.contains(r#"correction: "actually in session.rs""#));
+        assert!(content.contains(r#"question: "where is auth?""#));
+    }
+
+    #[test]
+    fn same_second_saves_do_not_overwrite_each_other() {
+        let tmp = tempfile::tempdir().unwrap();
+        let save = |q: &str| {
+            save_query_result(q, "answer", tmp.path(), "query", None, ResultOutcome::default())
+                .unwrap()
+        };
+        let first = save("first question");
+        let second = save("second question");
+        assert_ne!(first, second, "distinct questions must not collide");
+
+        // Re-saving the same question replaces its own file rather than piling up.
+        assert_eq!(save("first question"), first);
+        let files = std::fs::read_dir(tmp.path()).unwrap().count();
+        assert_eq!(files, 2);
+    }
+
+    #[test]
+    fn node_labels_containing_commas_survive() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = save_query_result(
+            "q",
+            "a",
+            tmp.path(),
+            "query",
+            Some(&["Vec<A, B>".to_string(), "plain".to_string()]),
+            ResultOutcome::default(),
+        )
+        .unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        // Quoting is what stops this splitting into three bogus citations.
+        assert!(content.contains(r#"nodes: ["Vec<A, B>", "plain"]"#));
+    }
+
+    #[test]
+    fn yaml_quote_escapes_quotes_backslashes_and_newlines() {
+        assert_eq!(yaml_quote(r#"say "hi""#), r#""say \"hi\"""#);
+        assert_eq!(yaml_quote(r"back\slash"), r#""back\\slash""#);
+        assert_eq!(yaml_quote("two\nlines"), r#""two lines""#);
+    }
+
+    #[test]
+    fn short_hash_is_stable_and_distinguishing() {
+        assert_eq!(short_hash("abc"), short_hash("abc"));
+        assert_ne!(short_hash("abc"), short_hash("abd"));
+        assert_eq!(short_hash("abc").len(), 8);
     }
 }

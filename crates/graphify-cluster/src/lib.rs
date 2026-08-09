@@ -4,6 +4,13 @@
 //! which improves upon Louvain by adding a refinement phase that guarantees
 //! well-connected communities. Falls back to greedy modularity when refinement
 //! yields no improvement.
+//!
+//! Detection only numbers the communities; [`label`] turns those numbers into
+//! names a reader can use.
+
+pub mod label;
+
+pub use label::{LabelOptions, LabelReport, heuristic_labels, label_communities};
 
 use std::collections::{HashMap, HashSet, VecDeque};
 

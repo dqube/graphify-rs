@@ -7,8 +7,16 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 mod cmd_build;
+mod cmd_clone;
+mod cmd_diagnose;
 mod cmd_explain;
+mod cmd_extract;
+mod cmd_label;
+mod cmd_merge;
 mod cmd_path;
+mod cmd_provider;
+mod cmd_prs;
+mod cmd_reflect;
 mod config;
 mod install;
 mod paths;
@@ -61,7 +69,7 @@ enum Commands {
         /// Push the graph to a live Neo4j instance (config [neo4j] or NEO4J_* env vars)
         #[arg(long)]
         neo4j_push: bool,
-        /// Export formats (comma-separated). Available: json,html,callflow-html,graphml,cypher,svg,wiki,obsidian,report. Default: json,report
+        /// Export formats (comma-separated). Available: json,html,callflow-html,tree,graphml,cypher,svg,rdf,falkordb,wiki,obsidian,report. Default: json,report
         #[arg(long, value_delimiter = ',')]
         format: Vec<String>,
         /// Maximum nodes in HTML visualization (default: 2000). Larger values may slow browser.
@@ -83,6 +91,104 @@ enum Commands {
         #[arg(long)]
         graph: Option<String>,
     },
+    /// Name graph communities with an LLM
+    Label {
+        /// Path to graph.json (default: graphify-rs-out/graph.json)
+        #[arg(long)]
+        graph: Option<String>,
+    },
+    /// Merge two or more graph.json files into one
+    MergeGraphs {
+        /// Input graph.json paths (two or more)
+        #[arg(required = true, num_args = 2..)]
+        inputs: Vec<String>,
+        /// Where to write the merged graph
+        #[arg(short, long)]
+        output: String,
+    },
+    /// Git merge driver for graph.json (invoked by git, not by hand)
+    MergeDriver {
+        /// Common ancestor version (git %O)
+        base: String,
+        /// Our version, also the file git expects the result in (git %A)
+        ours: String,
+        /// Their version (git %B)
+        theirs: String,
+    },
+    /// Report environment and graph health
+    Diagnose {
+        /// Path to graph.json (default: graphify-rs-out/graph.json)
+        #[arg(long)]
+        graph: Option<String>,
+    },
+    /// Check whether a newer release is available
+    CheckUpdate,
+    /// Report extraction cache size, hit rate, and staleness
+    CacheCheck {
+        /// Output directory holding the cache (default: graphify-rs-out)
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+    /// Inspect and test LLM provider configuration
+    Provider {
+        #[command(subcommand)]
+        action: ProviderAction,
+    },
+    /// Aggregate save-result outcomes into LESSONS.md
+    Reflect {
+        /// Output directory (default: graphify-rs-out)
+        #[arg(short, long)]
+        output: Option<String>,
+        /// Minimum number of corroborating results before a lesson is kept
+        #[arg(long, default_value_t = 2)]
+        min_corroboration: usize,
+    },
+    /// Clone a repository and build its graph
+    Clone {
+        /// Repository URL
+        url: String,
+        /// Destination directory (default: the repository name)
+        dest: Option<String>,
+        /// Clone only; skip the graph build
+        #[arg(long)]
+        no_build: bool,
+    },
+    /// Run extraction only and emit the raw result
+    Extract {
+        #[arg(short, long, default_value = ".")]
+        path: String,
+        /// Where to write extraction.json (default: stdout)
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+    /// Graph-aware pull request dashboard
+    Prs {
+        /// Show detail for a single PR instead of the dashboard
+        number: Option<u32>,
+        /// Rank the open PRs with an LLM
+        #[arg(long)]
+        triage: bool,
+        /// List git worktrees and the PR each one belongs to
+        #[arg(long)]
+        worktrees: bool,
+        /// Highlight PRs whose changes land in the same graph community
+        #[arg(long)]
+        conflicts: bool,
+        /// Also list PRs opened against the wrong base branch
+        #[arg(long)]
+        wrong_base: bool,
+        /// Base branch (auto-detected from the repository when omitted)
+        #[arg(long, short = 'b')]
+        base: Option<String>,
+        /// Target repository as `owner/repo` (defaults to the current one)
+        #[arg(long, short = 'R')]
+        repo: Option<String>,
+        /// Path to graph.json (default: graphify-rs-out/graph.json)
+        #[arg(long)]
+        graph: Option<String>,
+    },
+    /// Remove graphify-rs integration from every agent platform
+    Uninstall,
     /// Show the shortest path between two nodes
     Path {
         /// Source node name or ID
@@ -161,6 +267,13 @@ enum Commands {
         r#type: String,
         #[arg(long)]
         nodes: Vec<String>,
+        /// How the result turned out. Required before `reflect` can turn this
+        /// memory into a lesson.
+        #[arg(long, value_parser = ["useful", "dead_end", "corrected"])]
+        outcome: Option<String>,
+        /// What the answer should have been (use with `--outcome corrected`)
+        #[arg(long)]
+        correction: Option<String>,
         #[arg(long)]
         memory_dir: Option<String>,
     },
@@ -232,6 +345,35 @@ enum HookAction {
     Uninstall,
     /// Show hook status
     Status,
+    /// Verify installed hooks are present, executable, and current
+    Check,
+    /// Pre-commit guard: fail when the graph is stale relative to the index
+    Guard,
+}
+
+/// Default `graph.json` for commands that read an existing graph.
+fn default_graph_path() -> String {
+    paths::resolve_default_output(Path::new("."))
+        .join("graph.json")
+        .to_string_lossy()
+        .to_string()
+}
+
+/// Default output directory for commands that read build artifacts.
+fn default_output_dir() -> String {
+    paths::resolve_default_output(Path::new("."))
+        .to_string_lossy()
+        .to_string()
+}
+
+#[derive(Subcommand)]
+enum ProviderAction {
+    /// List supported LLM providers and which one is configured
+    List,
+    /// Show the resolved provider configuration
+    Show,
+    /// Send a minimal request to verify credentials
+    Test,
 }
 
 #[derive(Subcommand)]
@@ -397,6 +539,73 @@ async fn main() -> Result<()> {
             });
             cmd_query(&question, dfs, budget, &graph_path)?;
         }
+        Commands::Label { graph } => {
+            let graph_path = graph.unwrap_or_else(default_graph_path);
+            cmd_label::cmd_label(&graph_path, config::load_config(Path::new(".")).llm).await?;
+        }
+        Commands::MergeGraphs { inputs, output } => {
+            cmd_merge::cmd_merge_graphs(&inputs, &output)?;
+        }
+        Commands::MergeDriver { base, ours, theirs } => {
+            cmd_merge::cmd_merge_driver(&base, &ours, &theirs)?;
+        }
+        Commands::Diagnose { graph } => {
+            let graph_path = graph.unwrap_or_else(default_graph_path);
+            cmd_diagnose::cmd_diagnose(&graph_path)?;
+        }
+        Commands::CheckUpdate => cmd_diagnose::cmd_check_update()?,
+        Commands::CacheCheck { output } => {
+            let dir = output.unwrap_or_else(default_output_dir);
+            cmd_diagnose::cmd_cache_check(&dir)?;
+        }
+        Commands::Provider { action } => {
+            let name = match action {
+                ProviderAction::List => "list",
+                ProviderAction::Show => "show",
+                ProviderAction::Test => "test",
+            };
+            cmd_provider::cmd_provider(name, config::load_config(Path::new(".")).llm).await?;
+        }
+        Commands::Reflect {
+            output,
+            min_corroboration,
+        } => {
+            let dir = output.unwrap_or_else(default_output_dir);
+            cmd_reflect::cmd_reflect(&dir, min_corroboration)?;
+        }
+        Commands::Clone {
+            url,
+            dest,
+            no_build,
+        } => {
+            cmd_clone::cmd_clone(&url, dest.as_deref(), no_build).await?;
+        }
+        Commands::Extract { path, output } => {
+            cmd_extract::cmd_extract(&path, output.as_deref())?;
+        }
+        Commands::Prs {
+            number,
+            triage,
+            worktrees,
+            conflicts,
+            wrong_base,
+            base,
+            repo,
+            graph,
+        } => {
+            let args = cmd_prs::PrsArgs {
+                number,
+                triage,
+                worktrees,
+                conflicts,
+                wrong_base,
+                base,
+                repo,
+                graph_path: graph.unwrap_or_else(default_graph_path),
+            };
+            cmd_prs::cmd_prs(args, config::load_config(Path::new(".")).llm).await?;
+        }
+        Commands::Uninstall => install::uninstall_all(Path::new("."))?,
         Commands::Path {
             source,
             target,
@@ -435,6 +644,8 @@ async fn main() -> Result<()> {
                 HookAction::Install => println!("{}", graphify_hooks::install_hooks(root)?),
                 HookAction::Uninstall => println!("{}", graphify_hooks::uninstall_hooks(root)?),
                 HookAction::Status => println!("{}", graphify_hooks::hook_status(root)?),
+                HookAction::Check => println!("{}", graphify_hooks::hook_check(root)?),
+                HookAction::Guard => println!("{}", graphify_hooks::hook_guard(root)?),
             }
         }
         Commands::Claude { action } => {
@@ -498,8 +709,13 @@ async fn main() -> Result<()> {
             answer,
             r#type,
             nodes,
+            outcome,
+            correction,
             memory_dir,
         } => {
+            if correction.is_some() && outcome.as_deref() != Some("corrected") {
+                anyhow::bail!("--correction only applies with --outcome corrected");
+            }
             let mem_dir = memory_dir.unwrap_or_else(|| {
                 paths::resolve_default_output(Path::new("."))
                     .join("memory")
@@ -513,6 +729,10 @@ async fn main() -> Result<()> {
                 Path::new(&mem_dir),
                 &r#type,
                 nodes_ref,
+                graphify_ingest::ResultOutcome {
+                    outcome: outcome.as_deref(),
+                    correction: correction.as_deref(),
+                },
             )?;
             println!("Saved to {}", out.display());
         }
@@ -880,7 +1100,7 @@ fn cmd_init() -> Result<()> {
 # [media]
 # model = "~/.graphify-rs/models/ggml-base.en.bin"  # whisper.cpp GGML path, or model name for the Python CLI
 
-# Export formats (comma-separated). Available: json,html,callflow-html,graphml,cypher,svg,wiki,obsidian,report
+# Export formats (comma-separated). Available: json,html,callflow-html,tree,graphml,cypher,svg,rdf,falkordb,wiki,obsidian,report
 # Leave empty or omit for the default set (json, report).
 # formats = ["json", "html", "report"]
 

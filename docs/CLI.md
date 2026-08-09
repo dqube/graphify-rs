@@ -9,6 +9,8 @@
   - [build](#graphify-rs-build) — Build knowledge graph
   - [query](#graphify-rs-query) — Query the graph
   - [explain](#graphify-rs-explain) — Explain a node
+  - [path](#graphify-rs-path) — Shortest path between two nodes
+  - [operational commands](#operational-commands) — label, diagnose, check-update, cache-check, provider, reflect, clone, extract, merge-graphs, merge-driver, hook check/guard, uninstall
   - [diff](#graphify-rs-diff) — Compare two graph snapshots
   - [stats](#graphify-rs-stats) — Show graph statistics
   - [watch](#graphify-rs-watch) — Auto-rebuild on file changes
@@ -178,6 +180,52 @@ Behavior notes:
 - When both arguments resolve to the same node the command errors, since a zero-hop answer is almost never what was meant. Use a more specific label or the exact node ID.
 - When a query's top match is a coin flip against the runner-up (same match kind, same node kind, near-equal degree), a `warning:` line naming both goes to stderr.
 - Disconnected endpoints print a "no path found" message and exit successfully — that is an answer, not an error.
+
+---
+
+### Operational commands
+
+Twelve commands that manage the graph, the toolchain, and the integrations around them.
+
+| Command | Purpose | Key flags |
+|---------|---------|-----------|
+| `label` | Name each community with an LLM, writing `community_name` onto nodes plus a `.graphify_labels.json` sidecar. Falls back to the deterministic heuristic label when no LLM is configured or a call fails, so a community is never left unnamed. Results are cached by community content, so re-runs are cheap. | `--graph` |
+| `diagnose` | Environment and graph health: version, git repo, hooks, agent integrations, config, whether an LLM key is set (never its value), graph freshness against the corpus, output writability. Exits non-zero only on genuinely broken state, not warnings. | `--graph` |
+| `check-update` | Compare the running version against the newest crates.io release. Best-effort with a short timeout; degrades to a message when offline. `GRAPHIFY_OFFLINE=1` skips the call. | |
+| `cache-check` | Extraction cache size, hit rate, stale entries, and how much space you'd reclaim. | `--output` |
+| `provider` | `list` supported LLM providers, `show` the resolved config, or `test` credentials with a minimal live request. Never prints key material. | subcommand |
+| `reflect` | Aggregate `save-result` memories into `reflections/LESSONS.md` — preferred sources, dead ends, and corrections, with time-decayed scoring. Requires `save-result --outcome` to have been used. | `--output`, `--min-corroboration` |
+| `clone` | `git clone` a repository and build its graph. Refuses to clobber a non-empty destination; rejects URLs that could be read as git flags or as the `ext::` command transport. | `--no-build` |
+| `extract` | Extraction only — no clustering, analysis, or export. JSON to stdout (counts go to stderr, so piping stays clean) or to `--output`. | `--path`, `--output` |
+| `merge-graphs` | Combine two or more graphs. Each input is namespaced by its repo directory so same-named symbols from different repos stay distinct. | `--output` |
+| `merge-driver` | Git merge driver for `graph.json`. Prefers a clean union over conflict markers, since the file is generated. Invoked by git, not by hand — see below. | (git passes `%O %A %B`) |
+| `hook check` / `hook guard` | Verify installed hooks are present, executable, and current / pre-commit guard reporting whether the graph is stale relative to staged files. The guard fails open and cannot stall a commit. | |
+| `uninstall` | Remove graphify-rs integration from every agent platform and the git hooks. Platforms that were never installed are skipped, and one failure does not abort the rest. | |
+
+Registering the merge driver (once per machine, since git will not read a command from a committed file):
+
+```bash
+git config merge.graphify.name "graphify graph.json union merge"
+git config merge.graphify.driver "graphify-rs merge-driver %O %A %B"
+```
+
+Then, in a committed `.gitattributes`:
+
+```text
+graphify-out/graph.json merge=graphify
+```
+
+Recording outcomes so `reflect` has something to work with:
+
+```bash
+graphify-rs save-result --question "where does auth live?" --answer "auth.rs" \
+  --nodes auth.rs --outcome useful
+graphify-rs save-result --question "which module parses TOML?" --answer "config.rs" \
+  --outcome corrected --correction "actually read by config::load_config"
+graphify-rs reflect
+```
+
+`--outcome` is one of `useful`, `dead_end`, or `corrected`; `--correction` only applies to the last. Without an outcome a memory is stored but can never be corroborated into a lesson.
 
 ---
 
@@ -546,7 +594,7 @@ Generated file:
 # Only process code files (skip docs/papers)
 # code_only = false
 
-# Export formats (comma-separated). Available: json,html,callflow-html,graphml,cypher,svg,wiki,obsidian,report
+# Export formats (comma-separated). Available: json,html,callflow-html,tree,graphml,cypher,svg,rdf,falkordb,wiki,obsidian,report
 # Leave empty or omit for all formats.
 # formats = ["json", "html", "report"]
 

@@ -23,7 +23,7 @@ Source Files → detect → extract → build → cluster → analyze → export
 | `graphify-build` | Graph assembly from extraction results, node/edge deduplication, CodeGraph SQLite edge merge | `build_from_extraction()`, `merge_codegraph_edges()` |
 | `graphify-cluster` | Leiden community detection, cohesion scoring, incremental re-clustering | `cluster()`, `cluster_incremental()`, `cohesion_score()` |
 | `graphify-analyze` | PageRank, dependency cycles, god nodes, surprising connections, graph embeddings, temporal risk | `pagerank()`, `detect_cycles()`, `god_nodes()` |
-| `graphify-export` | 10 formats: JSON, HTML, split HTML, call-flow HTML (Mermaid), SVG, GraphML, Cypher, Wiki, Report, Obsidian | `export_json()`, `export_html()`, `export_callflow_html()` |
+| `graphify-export` | 13 formats: JSON, HTML, split HTML, call-flow HTML (Mermaid), D3 tree HTML, SVG, GraphML, Cypher, FalkorDB, RDF/Turtle, Wiki, Report, Obsidian | `export_json()`, `export_html()`, `export_callflow_html()`, `export_tree_html()`, `export_falkordb()`, `export_rdf()` |
 | `graphify-cache` | SHA256 content-hash caching for incremental rebuilds | `load_cached_from()`, `save_cached_to()` |
 | `graphify-security` | URL validation (SSRF), path traversal protection, label injection defense | `validate_url()`, `sanitize_path()` |
 | `graphify-ingest` | URL fetching: arXiv, tweets (oEmbed), PDFs, webpages | `ingest_url()` |

@@ -677,9 +677,18 @@ dependencies = [
 name = "graphify-cluster"
 version = "0.8.2"
 dependencies = [
+ "anyhow",
+ "graphify-cache",
  "graphify-core",
+ "graphify-extract",
  "petgraph",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
  "thiserror 2.0.18",
+ "tokio",
  "tracing",
 ]
 

@@ -8,6 +8,20 @@ description = "Community detection (Leiden/Louvain) for graphify"
 
 [dependencies]
 graphify-core.workspace = true
+# `label` reuses the extractor's provider resolution (API keys, base URLs,
+# OAuth fallback) so `graphify-rs label` honours the same [llm] config block
+# as the build pipeline instead of growing a second way to configure a model.
+graphify-extract.workspace = true
+graphify-cache.workspace = true
 petgraph.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+regex.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

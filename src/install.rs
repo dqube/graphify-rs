@@ -677,3 +677,282 @@ fn unregister_opencode_config(path: &Path) -> Result<()> {
     fs::write(path, output)?;
     Ok(())
 }
+
+/// Needle identifying graphify-rs content inside generated JSON/JS configs.
+const GRAPHIFY_TRACE: &str = "graphify-rs";
+
+/// A project-level platform integration that the `uninstall` sweep can remove.
+///
+/// `detect` exists so that a platform which was never installed is skipped
+/// entirely rather than "uninstalled": several removal routines rewrite the
+/// config file they touch, and rewriting somebody's untouched `settings.json`
+/// just to reformat it is not a no-op.
+struct Integration {
+    /// Label used in the summary; matches the per-platform subcommand names.
+    label: &'static str,
+    /// Whether this platform currently has anything left to remove.
+    detect: fn(&Path) -> bool,
+    /// Removal routine, reused verbatim from the per-platform subcommands.
+    remove: fn(&Path) -> Result<()>,
+}
+
+/// Every platform `uninstall_all` sweeps, in the order it sweeps them.
+///
+/// The AGENTS.md-based platforms share one section, so whichever runs first is
+/// the one that physically deletes it; the rest then find nothing and no-op.
+/// That is why detection is sampled up front (see [`uninstall_all`]).
+fn integrations() -> Vec<Integration> {
+    vec![
+        Integration {
+            label: "Claude",
+            detect: claude_present,
+            remove: claude_uninstall,
+        },
+        Integration {
+            label: "CodeBuddy",
+            detect: codebuddy_present,
+            remove: codebuddy_uninstall,
+        },
+        Integration {
+            label: "Codex",
+            detect: codex_present,
+            remove: codex_uninstall,
+        },
+        Integration {
+            label: "OpenCode",
+            detect: opencode_present,
+            remove: opencode_uninstall,
+        },
+        Integration {
+            label: "Claw",
+            detect: agents_md_present,
+            remove: |root| generic_platform_uninstall(root, "Claw"),
+        },
+        Integration {
+            label: "Droid",
+            detect: agents_md_present,
+            remove: |root| generic_platform_uninstall(root, "Droid"),
+        },
+        Integration {
+            label: "Trae",
+            detect: agents_md_present,
+            remove: |root| generic_platform_uninstall(root, "Trae"),
+        },
+        Integration {
+            label: "Trae CN",
+            detect: agents_md_present,
+            remove: |root| generic_platform_uninstall(root, "Trae CN"),
+        },
+    ]
+}
+
+/// True when `path` exists, is readable, and contains `needle`.
+fn file_contains(path: &Path, needle: &str) -> bool {
+    fs::read_to_string(path).is_ok_and(|content| content.contains(needle))
+}
+
+/// The shared `AGENTS.md` section every AGENTS-based platform installs.
+fn agents_md_present(project_root: &Path) -> bool {
+    file_contains(&project_root.join("AGENTS.md"), AGENTS_MD_MARKER)
+}
+
+fn claude_present(project_root: &Path) -> bool {
+    file_contains(&project_root.join("CLAUDE.md"), CLAUDE_MD_MARKER)
+        || file_contains(&project_root.join(".claude/settings.json"), GRAPHIFY_TRACE)
+}
+
+fn codebuddy_present(project_root: &Path) -> bool {
+    agents_md_present(project_root)
+        || file_contains(
+            &project_root.join(".codebuddy/settings.json"),
+            GRAPHIFY_TRACE,
+        )
+}
+
+fn codex_present(project_root: &Path) -> bool {
+    agents_md_present(project_root) || project_root.join(".codex/hooks.json").exists()
+}
+
+fn opencode_present(project_root: &Path) -> bool {
+    agents_md_present(project_root)
+        || project_root
+            .join(".opencode/plugins/graphify-rs.js")
+            .exists()
+        || file_contains(&project_root.join("opencode.json"), GRAPHIFY_TRACE)
+}
+
+/// Remove graphify-rs integration from every supported agent platform.
+///
+/// Detection is snapshotted before anything is removed: the AGENTS.md-based
+/// platforms share a single section, so probing after the first removal would
+/// under-report what was actually there. Platforms with nothing installed are
+/// skipped (a no-op, never an error), and one platform failing is collected as
+/// a warning so the remaining platforms still get cleaned.
+pub fn uninstall_all(project_root: &Path) -> Result<()> {
+    println!("Removing graphify-rs integration from all detected platforms...\n");
+
+    let (present, absent): (Vec<Integration>, Vec<Integration>) = integrations()
+        .into_iter()
+        .partition(|integration| (integration.detect)(project_root));
+    let skipped: Vec<&str> = absent.iter().map(|integration| integration.label).collect();
+
+    let mut removed: Vec<&str> = Vec::new();
+    let mut failed: Vec<(&str, String)> = Vec::new();
+    for integration in &present {
+        match (integration.remove)(project_root) {
+            Ok(()) => removed.push(integration.label),
+            Err(err) => failed.push((integration.label, format!("{err:#}"))),
+        }
+    }
+
+    // Git hooks are not an agent platform, but a full uninstall should leave no
+    // graphify-rs trigger behind. Mirrors the Python `uninstall_all`.
+    let mut hooks_removed = false;
+    if graphify_hooks::hooks_installed(project_root) {
+        match graphify_hooks::uninstall_hooks(project_root) {
+            Ok(msg) => {
+                println!("  {msg}");
+                hooks_removed = true;
+            }
+            Err(err) => failed.push(("Git hooks", err.to_string())),
+        }
+    }
+
+    println!("\nSummary");
+    if removed.is_empty() && !hooks_removed {
+        println!(
+            "  Nothing to remove - no graphify-rs integration found in {}",
+            project_root.display()
+        );
+    } else {
+        let mut items = removed;
+        if hooks_removed {
+            items.push("Git hooks");
+        }
+        println!("  Removed: {}", items.join(", "));
+    }
+    if !skipped.is_empty() {
+        println!("  Not installed (skipped): {}", skipped.join(", "));
+    }
+    for (label, err) in &failed {
+        eprintln!("  warning: could not remove {label}: {err}");
+    }
+    println!("\n  Global skill files under your home directory were left untouched.");
+
+    if !failed.is_empty() {
+        anyhow::bail!(
+            "{} integration(s) could not be removed; see the warnings above",
+            failed.len()
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Install-shaped fixtures for every platform the sweep knows about.
+    fn write_full_integration(root: &Path) {
+        fs::write(
+            root.join("CLAUDE.md"),
+            "# Project\n\n## graphify-rs\nrules\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("AGENTS.md"),
+            "# Agents\n\n## graphify-rs\nrules\n",
+        )
+        .unwrap();
+
+        fs::create_dir_all(root.join(".claude")).unwrap();
+        fs::write(
+            root.join(".claude/settings.json"),
+            r#"{"hooks":{"PreToolUse":[{"matcher":"Glob|Grep","hooks":[{"type":"command","command":"graphify-rs"}]}]}}"#,
+        )
+        .unwrap();
+
+        fs::create_dir_all(root.join(".codex")).unwrap();
+        fs::write(root.join(".codex/hooks.json"), "{}").unwrap();
+
+        fs::create_dir_all(root.join(".opencode/plugins")).unwrap();
+        fs::write(root.join(".opencode/plugins/graphify-rs.js"), "// plugin").unwrap();
+        fs::write(
+            root.join("opencode.json"),
+            r#"{"plugin":[".opencode/plugins/graphify-rs.js"]}"#,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_uninstall_all_with_nothing_installed() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        uninstall_all(tmp.path()).unwrap();
+
+        // A no-op must not create or rewrite anything in the project.
+        let entries: Vec<_> = fs::read_dir(tmp.path()).unwrap().collect();
+        assert!(entries.is_empty(), "uninstall created files in a clean dir");
+    }
+
+    #[test]
+    fn test_uninstall_all_removes_every_platform() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        write_full_integration(root);
+
+        uninstall_all(root).unwrap();
+
+        let claude_md = fs::read_to_string(root.join("CLAUDE.md")).unwrap();
+        assert!(!claude_md.contains(CLAUDE_MD_MARKER), "{claude_md}");
+        assert!(claude_md.contains("# Project"), "other content dropped");
+
+        let agents_md = fs::read_to_string(root.join("AGENTS.md")).unwrap();
+        assert!(!agents_md.contains(AGENTS_MD_MARKER), "{agents_md}");
+
+        let claude_settings = fs::read_to_string(root.join(".claude/settings.json")).unwrap();
+        assert!(!claude_settings.contains("Glob|Grep"), "{claude_settings}");
+
+        assert!(!root.join(".codex/hooks.json").exists());
+        assert!(!root.join(".opencode/plugins/graphify-rs.js").exists());
+
+        let opencode = fs::read_to_string(root.join("opencode.json")).unwrap();
+        assert!(!opencode.contains(GRAPHIFY_TRACE), "{opencode}");
+    }
+
+    #[test]
+    fn test_uninstall_all_is_idempotent() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_full_integration(tmp.path());
+
+        uninstall_all(tmp.path()).unwrap();
+        // Second sweep finds nothing and must still succeed.
+        uninstall_all(tmp.path()).unwrap();
+    }
+
+    #[test]
+    fn test_uninstall_all_removes_git_hooks() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join(".git/hooks")).unwrap();
+        graphify_hooks::install_hooks(tmp.path()).unwrap();
+        assert!(graphify_hooks::hooks_installed(tmp.path()));
+
+        uninstall_all(tmp.path()).unwrap();
+
+        assert!(!graphify_hooks::hooks_installed(tmp.path()));
+    }
+
+    #[test]
+    fn test_detection_only_fires_on_our_markers() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        fs::write(root.join("CLAUDE.md"), "# Project\n\n## something else\n").unwrap();
+        fs::write(root.join("AGENTS.md"), "# Agents\n").unwrap();
+
+        assert!(!claude_present(root));
+        assert!(!agents_md_present(root));
+        assert!(!codex_present(root));
+        assert!(!opencode_present(root));
+        assert!(!codebuddy_present(root));
+    }
+}

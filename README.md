@@ -62,7 +62,7 @@ Rust rewrite of [graphify](https://github.com/safishamsi/graphify) (Python) — 
 | **AST parsing** | Regex only | 11 native tree-sitter + regex fallback |
 | **Community detection** | Louvain | **Leiden** (with refinement) |
 | **MCP server** | - | **16 tools** over JSON-RPC 2.0 |
-| **Export formats** | 7 | **10** (+ Obsidian, split HTML, call-flow HTML) |
+| **Export formats** | 7 | **13** (+ Obsidian, split HTML, call-flow HTML, tree, FalkorDB, RDF) |
 | **Extraction** | Sequential | **Parallel** (`rayon`, configurable `-j`) |
 
 ## How It Works
@@ -149,8 +149,11 @@ Agents auto-check the graph before architecture questions and rebuild after code
 | `callflow.html` | Call-flow architecture document: nav, per-section Mermaid flowcharts, call tables, zoom/pan |
 | `html/` | Per-community HTML pages with navigation |
 | `GRAPH_REPORT.md` | God nodes, surprising connections, suggested questions |
+| `tree.html` | D3 collapsible tree: community → file → symbol |
 | `graph.svg` / `graph.graphml` | Static visualization / graph editor import |
 | `cypher.txt` | Neo4j import script |
+| `graph.falkordb.cypher` | FalkorDB upsert script (`redis-cli < graph.falkordb.cypher`) |
+| `graph.ttl` | RDF 1.1 Turtle for triple stores / SPARQL |
 | `wiki/` / `obsidian/` | Wiki pages / Obsidian vault with wikilinks |
 
 ## CLI at a Glance
@@ -164,6 +167,17 @@ graphify-rs build --neo4j-push                                  # push graph to 
 graphify-rs query "question" [--dfs] [--budget 2000]            # query
 graphify-rs explain <node>                                      # node metadata, community, neighbors
 graphify-rs path "<A>" "<B>"                                    # shortest connection between two nodes
+graphify-rs label                                               # name communities with an LLM
+graphify-rs diagnose                                            # environment + graph health
+graphify-rs cache-check                                         # cache size, hit rate, reclaimable space
+graphify-rs check-update                                        # newer release available?
+graphify-rs provider list|show|test                             # LLM provider configuration
+graphify-rs reflect                                             # aggregate outcomes into LESSONS.md
+graphify-rs clone <url> [dest]                                  # clone + build in one step
+graphify-rs extract --path .                                    # extraction only, JSON to stdout
+graphify-rs merge-graphs a.json b.json -o merged.json           # combine graphs
+graphify-rs hook check|guard                                    # verify hooks / pre-commit staleness guard
+graphify-rs uninstall                                           # remove all agent integrations
 graphify-rs watch --path .                                       # auto-rebuild
 graphify-rs serve                                                 # MCP server
 graphify-rs diff old.json new.json                               # compare

@@ -4,8 +4,10 @@
 //! single [`KnowledgeGraph`], skipping dangling edges.
 
 mod codegraph_merge;
+pub mod merge;
 
 pub use codegraph_merge::merge_codegraph_edges;
+pub use merge::{MergeInput, MergeStats, distinct_repo_tags, merge_graphs, three_way_merge};
 
 use std::collections::HashSet;
 
