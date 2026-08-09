@@ -11,16 +11,29 @@
 //! - **Import** nodes with `imports` edges from the file
 //! - **Calls** edges inferred by matching known function names within bodies
 
+mod apex;
 mod c_cpp;
 mod csharp;
+mod cuda;
+mod dm;
+mod fortran;
 mod generic;
 mod go;
+mod groovy;
+mod hcl;
 mod java;
 mod js_ts;
+mod json;
 mod kotlin;
+mod metal;
+mod pascal;
+mod projfiles;
 mod python;
 mod ruby;
 mod rust;
+mod shell;
+mod sql;
+mod verilog;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -161,6 +174,19 @@ pub fn extract_file(path: &Path, source: &str, lang: &str) -> ExtractionResult {
         "ruby" => ruby::extract_ruby(path, source),
         "csharp" => csharp::extract_csharp(path, source),
         "kotlin" => kotlin::extract_kotlin(path, source),
+        "cuda" => cuda::extract_cuda(path, source),
+        "metal" => metal::extract_metal(path, source),
+        "groovy" => groovy::extract_groovy(path, source),
+        "apex" => apex::extract_apex(path, source),
+        "shell" => shell::extract_shell(path, source),
+        "sql" => sql::extract_sql(path, source),
+        "hcl" => hcl::extract_hcl(path, source),
+        "fortran" => fortran::extract_fortran(path, source),
+        "pascal" => pascal::extract_pascal(path, source),
+        "verilog" => verilog::extract_verilog(path, source),
+        "dm" => dm::extract_dm(path, source),
+        "json" => json::extract_json(path, source),
+        "dotnet_proj" => projfiles::extract_dotnet_proj(path, source),
         _ => generic::extract_generic(path, source, lang),
     }
 }

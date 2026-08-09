@@ -105,7 +105,7 @@ graphify-rs build                  # 添加 LLM 推断的 INFERRED 边
 
 **第 1 轮 — 确定性 AST 提取**（免费、快速、始终运行）：
 
-使用 [tree-sitter](https://tree-sitter.github.io/) 将源代码解析为 AST，然后提取函数、类、导入和调用关系。支持 21 种语言，其中 11 种有原生 tree-sitter 语法，其余走正则回退。此轮的每条边标记为 `EXTRACTED`，置信度 1.0。
+使用 [tree-sitter](https://tree-sitter.github.io/) 将源代码解析为 AST，然后提取函数、类、导入和调用关系。支持 37 种语言，其中 14 种有原生 tree-sitter 语法（含 Vue/Svelte/Astro 经脚本块提取），其余走专用正则提取器。此轮的每条边标记为 `EXTRACTED`，置信度 1.0。
 
 **第 2 轮 — LLM 语义提取**（可选，`--no-llm` 跳过）：
 
@@ -141,7 +141,7 @@ graphify-rs build                  # 添加 LLM 推断的 INFERRED 边
 |-------|------|
 | `graphify-core` | 数据模型（`GraphNode`, `GraphEdge`, `KnowledgeGraph`）、ID 生成、置信度体系 |
 | `graphify-detect` | 文件发现、分类（code/doc/paper/image）、`.graphifyignore`、敏感文件过滤 |
-| `graphify-extract` | AST 提取（tree-sitter，21 种语言）、多 Provider LLM 语义提取、去重 |
+| `graphify-extract` | AST 提取（tree-sitter + 正则，37 种语言）、多 Provider LLM 语义提取、去重 |
 | `graphify-build` | 从提取结果组装图谱、节点/边去重 |
 | `graphify-cluster` | Leiden 社区检测、凝聚力评分、社区拆分/合并 |
 | `graphify-analyze` | 高连接节点、跨社区惊奇连接、建议问题、图谱 diff |
@@ -209,12 +209,12 @@ graphify-rs serve                  # 启动 MCP 服务器供 Agent 查询
 | `graph_stats` | 图谱整体统计 |
 | `shortest_path` | 查找两个节点之间的最短路径 |
 
-## 支持的语言（21 种）
+## 支持的语言（37 种）
 
 | 原生（tree-sitter）| 正则回退 |
 |-------------------|---------|
-| Python, JavaScript, TypeScript, Rust, Go, Java | Kotlin, Scala, PHP, Swift, Lua |
-| C, C++, Ruby, C#, Dart | Zig, PowerShell, Elixir, Obj-C, Julia |
+| Python, JavaScript, TypeScript, Vue, Svelte, Astro, Rust, Go, Java | Kotlin, Scala, PHP, Swift, Lua, CUDA, Metal, Groovy |
+| C, C++, Ruby, C#, Dart | Zig, PowerShell, Elixir, Obj-C, Julia, SystemVerilog, SQL, Fortran, Pascal, Salesforce Apex, Terraform/HCL, Bash, JSON, .NET 工程文件（.sln/.csproj/.xaml/.razor 等）、DM（BYOND） |
 
 ## 参与贡献
 

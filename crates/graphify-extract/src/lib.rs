@@ -56,6 +56,46 @@ pub const DISPATCH: &[(&str, &str)] = &[
     (".mm", "objc"),
     (".jl", "julia"),
     (".dart", "dart"),
+    // Phase 2 language expansion (regex-based extractors)
+    (".cu", "cuda"),
+    (".cuh", "cuda"),
+    (".metal", "metal"),
+    (".svelte", "svelte"),
+    (".astro", "astro"),
+    (".groovy", "groovy"),
+    (".gradle", "groovy"),
+    (".v", "verilog"),
+    (".sv", "verilog"),
+    (".svh", "verilog"),
+    (".sql", "sql"),
+    (".f", "fortran"),
+    (".f90", "fortran"),
+    (".f95", "fortran"),
+    (".f03", "fortran"),
+    (".f08", "fortran"),
+    (".pas", "pascal"),
+    (".pp", "pascal"),
+    (".dpr", "pascal"),
+    (".dpk", "pascal"),
+    (".lpr", "pascal"),
+    (".cls", "apex"),
+    (".trigger", "apex"),
+    (".tf", "hcl"),
+    (".tfvars", "hcl"),
+    (".hcl", "hcl"),
+    (".sh", "shell"),
+    (".bash", "shell"),
+    (".json", "json"),
+    (".sln", "dotnet_proj"),
+    (".csproj", "dotnet_proj"),
+    (".fsproj", "dotnet_proj"),
+    (".vbproj", "dotnet_proj"),
+    (".xaml", "dotnet_proj"),
+    (".razor", "dotnet_proj"),
+    (".cshtml", "dotnet_proj"),
+    (".dm", "dm"),
+    (".dme", "dm"),
+    (".dmm", "dm"),
 ];
 
 /// Build a hashmap for fast extension lookup (cached).
@@ -140,12 +180,19 @@ pub fn extract(paths: &[PathBuf]) -> ExtractionResult {
 
             debug!("extracting {} ({})", path.display(), lang);
 
-            // Vue SFCs: isolate the <script> block so tree-sitter sees clean JS/TS.
-            let (source, lang) = if path.extension().and_then(|e| e.to_str()) == Some("vue") {
-                let (cleaned, detected_lang) = vue_extract_script(&source);
-                (cleaned, detected_lang)
-            } else {
-                (source, lang)
+            // Vue/Svelte SFCs: isolate the <script> block so tree-sitter sees
+            // clean JS/TS. Astro components: isolate the frontmatter fence.
+            let ext = path.extension().and_then(|e| e.to_str());
+            let (source, lang) = match ext {
+                Some("vue") | Some("svelte") => {
+                    let (cleaned, detected_lang) = vue_extract_script(&source);
+                    (cleaned, detected_lang)
+                }
+                Some("astro") => {
+                    let (cleaned, detected_lang) = astro_extract_frontmatter(&source);
+                    (cleaned, detected_lang)
+                }
+                _ => (source, lang),
             };
 
             let mut result = if let Some(ts_result) = treesitter::try_extract(path, &source, lang) {
@@ -855,7 +902,8 @@ fn resolve_dart_import<'a>(
     Vec::new()
 }
 
-/// Extract the `<script>` block from a Vue SFC, blanking everything outside it.
+/// Extract the `<script>` block from a Vue or Svelte SFC, blanking everything
+/// outside it.
 ///
 /// Newlines are preserved throughout so line numbers in extracted nodes remain
 /// accurate. Returns the cleaned source and the detected language
@@ -901,6 +949,45 @@ fn vue_extract_script(source: &[u8]) -> (Vec<u8>, &'static str) {
         }
     }
     (cleaned, lang)
+}
+
+/// Extract the frontmatter fence (`---` … `---`) from an Astro component,
+/// blanking everything outside it so the JS/TS extractor sees clean code.
+///
+/// Astro frontmatter is always TypeScript-compatible, so the returned language
+/// is `"typescript"`. Newlines are preserved to keep line numbers accurate.
+/// Falls back to the first `<script>` block when no frontmatter is present.
+fn astro_extract_frontmatter(source: &[u8]) -> (Vec<u8>, &'static str) {
+    fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+        haystack.windows(needle.len()).position(|w| w == needle)
+    }
+
+    // Frontmatter must open at the very start of the file.
+    let trimmed_start = source
+        .iter()
+        .position(|b| !b.is_ascii_whitespace())
+        .unwrap_or(0);
+    if source[trimmed_start..].starts_with(b"---") {
+        let content_start = trimmed_start + 3;
+        if let Some(close_rel) = find_bytes(&source[content_start..], b"\n---") {
+            let content_end = content_start + close_rel;
+            let mut cleaned = source.to_vec();
+            for b in &mut cleaned[..content_start] {
+                if *b != b'\n' {
+                    *b = b' ';
+                }
+            }
+            for b in &mut cleaned[content_end..] {
+                if *b != b'\n' {
+                    *b = b' ';
+                }
+            }
+            return (cleaned, "typescript");
+        }
+    }
+
+    // No frontmatter: try a client-side <script> block instead.
+    vue_extract_script(source)
 }
 
 #[cfg(test)]

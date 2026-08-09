@@ -83,7 +83,7 @@ Rust rewrite of [graphify](https://github.com/safishamsi/graphify) (Python) — 
                   └── obsidian/           Obsidian vault
 ```
 
-**Pass 1 — AST extraction** (free, always runs): tree-sitter parses 21 languages into functions, classes, imports, calls. All edges tagged `EXTRACTED` (confidence 1.0).
+**Pass 1 — AST extraction** (free, always runs): tree-sitter parses 21 languages into functions, classes, imports, calls; 16 more languages are covered by dedicated regex extractors. All edges tagged `EXTRACTED` (confidence 1.0).
 
 **Pass 2 — Semantic extraction** (optional, `--no-llm` to skip): LLM API (Anthropic, OpenAI, Ollama, or OpenAI-compatible) discovers conceptual links, shared assumptions, design rationale. Edges tagged `INFERRED` (confidence 0.4–0.9). Configure via `[llm]` in `graphify-rs.toml`.
 
@@ -103,11 +103,11 @@ Rust rewrite of [graphify](https://github.com/safishamsi/graphify) (Python) — 
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#graph-algorithms) for complexity analysis.
 
-## Supported Languages (22)
+## Supported Languages (37)
 
 | Native tree-sitter | Regex fallback |
 |---------------------|----------------|
-| Python, JavaScript, TypeScript, Vue (via JS/TS), Rust, Go, Java, C, C++, Ruby, C#, Dart | Kotlin, Scala, PHP, Swift, Lua, Zig, PowerShell, Elixir, Obj-C, Julia |
+| Python, JavaScript, TypeScript, Vue (via JS/TS), Svelte (via JS/TS), Astro (via TS), Rust, Go, Java, C, C++, Ruby, C#, Dart | Kotlin, Scala, PHP, Swift, Lua, Zig, PowerShell, Elixir, Obj-C, Julia, CUDA, Metal, Groovy, SystemVerilog, SQL, Fortran, Pascal, Salesforce Apex, Terraform/HCL, Bash/Shell, JSON, .NET project files (.sln/.csproj/.xaml/.razor…), DM (BYOND) |
 
 ## Agent Integration
 
@@ -127,7 +127,7 @@ Agents auto-check the graph before architecture questions and rebuild after code
 | Crate | Role |
 |-------|------|
 | `graphify-core` | Data models, graph structure, confidence system |
-| `graphify-extract` | AST extraction (21 languages), multi-provider LLM semantic extraction |
+| `graphify-extract` | AST extraction (37 languages), multi-provider LLM semantic extraction |
 | `graphify-cluster` | Leiden community detection, incremental re-clustering |
 | `graphify-analyze` | PageRank, cycles, embeddings, god nodes, temporal risk |
 | `graphify-serve` | MCP server (16 tools), smart summarization, full-text search index |

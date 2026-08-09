@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **15 new language extractors (22 → 37 languages)** — closes the language-coverage gap with the Python original. New regex-based extractors: CUDA (`.cu`/`.cuh`, incl. `__global__`/`__device__` kernels), Metal (`.metal`, shader entry points), Svelte (`.svelte`, via `<script>` block extraction), Astro (`.astro`, via frontmatter fence extraction), Groovy (`.groovy`/`.gradle`), SystemVerilog (`.v`/`.sv`/`.svh`), SQL (`.sql`, tables/views/routines), Fortran (`.f`/`.f90`/`.f95`/`.f03`/`.f08`), Pascal/Delphi (`.pas`/`.pp`/`.dpr`/`.dpk`/`.lpr`), Salesforce Apex (`.cls`/`.trigger`, incl. trigger→sObject edges), Terraform/HCL (`.tf`/`.tfvars`/`.hcl`), Bash/Shell (`.sh`/`.bash`), JSON (`.json`, top-level keys), .NET project files (`.sln`/`.csproj`/`.fsproj`/`.vbproj`/`.xaml`/`.razor`/`.cshtml`, package/project references and code-behind links), DM/BYOND (`.dm`/`.dme`/`.dmm`, type paths and procs).
+- **Shell-specific call inference** — Bash functions are invoked by bare name, so the shell extractor matches whole-word invocations instead of the `name(` pattern used by other languages.
+
 ## [0.8.2] - 2026-07-05
 
 ### Changed

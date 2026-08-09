@@ -32,12 +32,12 @@ impl Parser for RegexParser {
     }
 
     fn supported_extensions(&self) -> &[&str] {
-        // All extensions from the DISPATCH table
-        &[
-            ".py", ".js", ".jsx", ".ts", ".tsx", ".vue", ".go", ".rs", ".java", ".c", ".h", ".cpp",
-            ".cc", ".cxx", ".hpp", ".rb", ".cs", ".kt", ".kts", ".scala", ".php", ".swift", ".lua",
-            ".toc", ".zig", ".ps1", ".ex", ".exs", ".m", ".mm", ".jl",
-        ]
+        // Derived from the DISPATCH table so new languages are picked up
+        // automatically.
+        static EXTS: std::sync::LazyLock<Vec<&'static str>> = std::sync::LazyLock::new(|| {
+            crate::DISPATCH.iter().map(|(ext, _)| *ext).collect()
+        });
+        &EXTS
     }
 }
 
