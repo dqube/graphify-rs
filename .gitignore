@@ -3,6 +3,7 @@
 *.swo
 .DS_Store
 graphify-out/
+graphify-rs-out/
 *.env
 .idea/
 .vscode/

@@ -21,6 +21,12 @@ pub const PAPER_EXTENSIONS: &[&str] = &[".pdf"];
 /// Image file extensions.
 pub const IMAGE_EXTENSIONS: &[&str] = &[".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"];
 
+/// Audio/video media extensions (transcribed via Whisper when available).
+pub const MEDIA_EXTENSIONS: &[&str] = &[
+    ".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".mp3", ".wav", ".m4a", ".flac", ".ogg",
+    ".opus",
+];
+
 /// Office document extensions.
 pub const OFFICE_EXTENSIONS: &[&str] = &[".docx", ".xlsx"];
 

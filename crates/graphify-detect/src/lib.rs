@@ -242,7 +242,7 @@ fn detect_inner(root: &Path) -> DetectResult {
             FileType::Code | FileType::Document | FileType::Paper => {
                 total_words += count_words(path);
             }
-            FileType::Image => {}
+            FileType::Image | FileType::Media => {}
         }
 
         files.entry(file_type).or_default().push(rel);
@@ -337,7 +337,7 @@ fn entry_words_and_hash(
         if size == e.size {
             // Same size but mtime changed — verify hash before treating as modified.
             match file_type {
-                FileType::Image => {
+                FileType::Image | FileType::Media => {
                     let h = graphify_cache::file_hash(path).unwrap_or_default();
                     return if h == e.hash { (e.words, h) } else { (0, h) };
                 }
@@ -360,7 +360,7 @@ fn entry_words_and_hash(
     }
     // New file, size changed, or meta unavailable → compute fresh.
     match file_type {
-        FileType::Image => (0, graphify_cache::file_hash(path).unwrap_or_default()),
+        FileType::Image | FileType::Media => (0, graphify_cache::file_hash(path).unwrap_or_default()),
         _ => match fs::read_to_string(path) {
             Ok(content) => {
                 let h = graphify_cache::content_hash(content.as_bytes());

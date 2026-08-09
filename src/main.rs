@@ -349,6 +349,7 @@ async fn main() -> Result<()> {
             } else {
                 None
             };
+            let media_model = app_cfg.media.and_then(|m| m.model);
 
             cmd_build::cmd_build(
                 &effective_path,
@@ -364,6 +365,7 @@ async fn main() -> Result<()> {
                 cluster_only,
                 deep,
                 neo4j_conn,
+                media_model,
             )
             .await?;
         }
@@ -518,6 +520,7 @@ async fn main() -> Result<()> {
                     false,
                     false,
                     false,
+                    None,
                     None,
                 )
                 .await
@@ -848,6 +851,10 @@ fn cmd_init() -> Result<()> {
 # user = "neo4j"
 # password = "..."
 # database = "neo4j"
+
+# Media transcription (audio/video -> transcript nodes via local Whisper tool).
+# [media]
+# model = "~/.graphify-rs/models/ggml-base.en.bin"  # whisper.cpp GGML path, or model name for the Python CLI
 
 # Export formats (comma-separated). Available: json,html,graphml,cypher,svg,wiki,obsidian,report
 # Leave empty or omit for the default set (json, report).

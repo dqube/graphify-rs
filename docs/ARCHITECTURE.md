@@ -1,6 +1,6 @@
 # Architecture
 
-graphify-rs is organized as a 14-crate Cargo workspace. Each crate has a single responsibility and communicates through shared types defined in `graphify-core`.
+graphify-rs is organized as a 15-crate Cargo workspace. Each crate has a single responsibility and communicates through shared types defined in `graphify-core`.
 
 ## Pipeline
 
@@ -30,6 +30,7 @@ Source Files → detect → extract → build → cluster → analyze → export
 | `graphify-serve` | MCP server with 15 query tools over JSON-RPC 2.0 stdio | `dispatch()`, `smart_summary()` |
 | `graphify-watch` | File monitoring with debounce, incremental rebuild | `watch()` |
 | `graphify-hooks` | Git hook install/uninstall (post-commit, post-checkout) | `install()`, `uninstall()` |
+| `graphify-media` | Audio/video transcription via external Whisper tools (whisper.cpp, openai-whisper, custom), content-hash transcript cache, yt-dlp URL audio | `transcribe()`, `discover_transcriber()`, `fetch_url_audio()` |
 | `graphify-benchmark` | Token efficiency measurement | `benchmark()` |
 
 ## Graph Algorithms

@@ -26,6 +26,7 @@ pub async fn cmd_build(
     cluster_only: bool,
     deep: bool,
     neo4j_conn: Option<graphify_export::Neo4jConnection>,
+    media_model: Option<String>,
 ) -> Result<()> {
     let root = PathBuf::from(path);
     let output_dir = PathBuf::from(output);
@@ -88,6 +89,20 @@ pub async fn cmd_build(
     }
 
     let mut extractions = step_extract_ast(&root, &cache_dir, &detection, code_only, verb)?;
+
+    if !code_only {
+        step_media(
+            &root,
+            &cache_dir,
+            &detection,
+            &mut extractions,
+            verb,
+            llm_config.as_ref(),
+            media_model,
+            no_llm,
+        )
+        .await;
+    }
 
     if !no_llm && !code_only {
         step_extract_semantic(
@@ -327,14 +342,19 @@ fn step_detect(
         .files
         .get(&graphify_detect::FileType::Image)
         .map_or(0, std::vec::Vec::len);
+    let n_media = detection
+        .files
+        .get(&graphify_detect::FileType::Media)
+        .map_or(0, std::vec::Vec::len);
     info_print!(
         verb,
-        "  Found {} files ({} code, {} doc, {} paper, {} image) · ~{} words",
+        "  Found {} files ({} code, {} doc, {} paper, {} image, {} media) · ~{} words",
         detection.total_files.to_string().bold(),
         n_code.to_string().green(),
         n_doc.to_string().blue(),
         n_paper.to_string().magenta(),
         n_image.to_string().yellow(),
+        n_media.to_string().red(),
         detection.total_words
     );
     if let Some(ref warning) = detection.warning {
@@ -465,6 +485,190 @@ fn step_extract_ast(
     );
 
     Ok(vec![ast_result])
+}
+
+/// Media step: transcribe audio/video files with an external Whisper tool and
+/// add transcript nodes to the graph. When an LLM is configured, transcripts
+/// also go through semantic extraction (file_type "media").
+///
+/// Transcription is local (no LLM), so it runs even with `--no-llm`; only the
+/// semantic pass on transcript text is gated by it.
+#[allow(clippy::too_many_arguments)]
+async fn step_media(
+    root: &Path,
+    cache_dir: &Path,
+    detection: &graphify_detect::DetectResult,
+    extractions: &mut Vec<graphify_core::model::ExtractionResult>,
+    verb: Verbosity,
+    llm_config: Option<&crate::config::LLMConfig>,
+    media_model: Option<String>,
+    no_llm: bool,
+) {
+    let media_files: Vec<PathBuf> = detection
+        .files
+        .get(&graphify_detect::FileType::Media)
+        .into_iter()
+        .flat_map(|v| v.iter().map(|f| root.join(f)))
+        .collect();
+    if media_files.is_empty() {
+        return;
+    }
+
+    let media_config = graphify_media::MediaConfig {
+        cache_dir: cache_dir.to_path_buf(),
+        model: media_model,
+    };
+
+    // Files with a cached transcript can be used even when no Whisper tool is
+    // installed on this machine.
+    let (cached_files, uncached_files): (Vec<&PathBuf>, Vec<&PathBuf>) = media_files
+        .iter()
+        .partition(|p| graphify_media::cached_transcript(p, &media_config).is_some());
+
+    let transcriber = graphify_media::discover_transcriber(&media_config);
+    if transcriber.is_none() && !uncached_files.is_empty() {
+        info_print!(
+            verb,
+            "  {} {} media file(s) found but no Whisper tool — install whisper-cli (whisper.cpp), openai-whisper, or set GRAPHIFY_WHISPER_CMD",
+            "ℹ".blue(),
+            uncached_files.len()
+        );
+    }
+    if transcriber.is_none() && cached_files.is_empty() {
+        return;
+    }
+    if let Some(ref t) = transcriber {
+        info_print!(
+            verb,
+            "  {} {} media file(s) via {}...",
+            "Transcribing".cyan(),
+            media_files.len(),
+            t.name()
+        );
+    } else {
+        info_print!(
+            verb,
+            "  {} {} cached media transcript(s)...",
+            "Loading".cyan(),
+            cached_files.len()
+        );
+    }
+
+    let llm = if no_llm {
+        None
+    } else {
+        resolve_llm_config(llm_config, verb)
+    };
+
+    for media_path in &media_files {
+        let transcript = match graphify_media::transcribe(media_path, &media_config) {
+            Ok(Some(t)) => t,
+            Ok(None) => continue,
+            Err(e) => {
+                info_print!(
+                    verb,
+                    "  {} {} transcription failed: {}",
+                    "⚠".yellow(),
+                    media_path.display(),
+                    e
+                );
+                continue;
+            }
+        };
+
+        let stem = media_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("media")
+            .to_string();
+        let ps = media_path.to_string_lossy().into_owned();
+        let words = transcript.text.split_whitespace().count();
+
+        let file_id = graphify_core::id::make_id(&[&ps]);
+        let transcript_id = graphify_core::id::make_id(&[&ps, "transcript"]);
+        let mut extra = HashMap::new();
+        extra.insert("kind".to_string(), serde_json::json!("transcript"));
+        extra.insert("tool".to_string(), serde_json::json!(transcript.tool));
+        extra.insert("words".to_string(), serde_json::json!(words));
+
+        let mut media_result = graphify_core::model::ExtractionResult::default();
+        media_result.nodes.push(graphify_core::model::GraphNode {
+            id: file_id.clone(),
+            label: stem.clone(),
+            source_file: ps.clone(),
+            source_location: None,
+            node_type: graphify_core::model::NodeType::File,
+            community: None,
+            extra: HashMap::new(),
+        });
+        media_result.nodes.push(graphify_core::model::GraphNode {
+            id: transcript_id.clone(),
+            label: format!("{stem} (transcript)"),
+            source_file: ps.clone(),
+            source_location: None,
+            node_type: graphify_core::model::NodeType::Concept,
+            community: None,
+            extra,
+        });
+        media_result.edges.push(graphify_core::model::GraphEdge {
+            source: file_id,
+            target: transcript_id,
+            relation: "transcribes".to_string(),
+            confidence: graphify_core::confidence::Confidence::Extracted,
+            confidence_score: 1.0,
+            source_file: ps.clone(),
+            source_location: None,
+            weight: 1.0,
+            provenance: Some("whisper".to_string()),
+            extra: HashMap::new(),
+        });
+        extractions.push(media_result);
+
+        verbose_print!(
+            verb,
+            "    {} → {} words{}",
+            media_path.file_name().unwrap_or_default().to_string_lossy(),
+            words,
+            if transcript.cached { " (cached)" } else { "" }
+        );
+
+        // Semantic pass over the transcript text (LLM), cached by media hash.
+        if let Some(ref cfg) = llm {
+            let sem_result = match graphify_cache::load_cached_from::<
+                graphify_core::model::ExtractionResult,
+            >(media_path, root, cache_dir)
+            {
+                Some(cached) => Some(cached),
+                None => {
+                    match graphify_extract::semantic::extract_semantic(
+                        media_path,
+                        &transcript.text,
+                        "media",
+                        cfg,
+                    )
+                    .await
+                    {
+                        Ok(r) => {
+                            let _ = graphify_cache::save_cached_to(media_path, &r, root, cache_dir);
+                            Some(r)
+                        }
+                        Err(e) => {
+                            verbose_print!(
+                                verb,
+                                "    {} transcript semantic extraction: {}",
+                                "⚠".yellow(),
+                                e
+                            );
+                            None
+                        }
+                    }
+                }
+            };
+            if let Some(r) = sem_result {
+                extractions.push(r);
+            }
+        }
+    }
 }
 
 /// Maximum number of code files sent through the LLM in `--mode deep`.

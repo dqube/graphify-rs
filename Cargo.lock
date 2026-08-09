@@ -784,6 +784,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "graphify-media"
+version = "0.8.2"
+dependencies = [
+ "anyhow",
+ "graphify-cache",
+ "graphify-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "graphify-rs"
 version = "0.8.2"
 dependencies = [
@@ -804,6 +818,7 @@ dependencies = [
  "graphify-extract",
  "graphify-hooks",
  "graphify-ingest",
+ "graphify-media",
  "graphify-security",
  "graphify-serve",
  "graphify-watch",

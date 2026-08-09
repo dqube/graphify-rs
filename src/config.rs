@@ -13,6 +13,16 @@ pub struct Config {
     pub formats: Option<Vec<String>>,
     pub llm: Option<LLMConfig>,
     pub neo4j: Option<Neo4jConfig>,
+    pub media: Option<MediaConfig>,
+}
+
+/// Media transcription settings from the `[media]` section.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct MediaConfig {
+    /// Whisper model: path to a GGML file (whisper.cpp) or model name
+    /// (OpenAI Python CLI). Falls back to the `WHISPER_MODEL` env var.
+    pub model: Option<String>,
 }
 
 /// Neo4j connection settings from the `[neo4j]` section.

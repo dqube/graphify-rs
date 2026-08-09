@@ -14,6 +14,7 @@ members = [
     "crates/graphify-serve",
     "crates/graphify-watch",
     "crates/graphify-hooks",
+    "crates/graphify-media",
     "crates/graphify-benchmark",
 ]
 
@@ -71,6 +72,7 @@ graphify-ingest = { path = "crates/graphify-ingest", version = "0.8.0" }
 graphify-serve = { path = "crates/graphify-serve", version = "0.8.0" }
 graphify-watch = { path = "crates/graphify-watch", version = "0.8.0" }
 graphify-hooks = { path = "crates/graphify-hooks", version = "0.8.0" }
+graphify-media = { path = "crates/graphify-media", version = "0.8.0" }
 graphify-benchmark = { path = "crates/graphify-benchmark", version = "0.8.0" }
 
 [package]
@@ -114,6 +116,7 @@ graphify-ingest.workspace = true
 graphify-serve.workspace = true
 graphify-watch.workspace = true
 graphify-hooks.workspace = true
+graphify-media.workspace = true
 graphify-benchmark.workspace = true
 clap.workspace = true
 tokio.workspace = true

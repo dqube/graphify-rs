@@ -108,6 +108,7 @@ graphify-rs build --code-only --no-llm --no-viz --format json,report
 1. **Detect** — Scans `--path` for code, doc, paper, and image files (respects `.graphifyignore`, skips sensitive files).
 2. **Extract AST (Pass 1)** — Deterministic tree-sitter + regex extraction for code files. Per-file SHA256 cache in `<output>/cache/`.
 3. **Semantic Extraction (Pass 2)** — Concurrent LLM extraction for docs/papers (skipped with `--no-llm` or `--code-only`). Supports Anthropic, OpenAI, Ollama, and OpenAI-compatible providers. Configure via `[llm]` in `graphify.toml`, or set `ANTHROPIC_API_KEY` env var for backward compat. Concurrency = `min(--jobs, 8)`, default 4.
+4. **Media Transcription** — Audio/video files (`.mp4`, `.mp3`, `.wav`, …) are transcribed with a locally installed Whisper tool (`whisper-cli`, OpenAI `whisper`, or `GRAPHIFY_WHISPER_CMD`). Each file gets a transcript concept node plus a `transcribes` edge; with an LLM configured, transcripts also go through semantic extraction. Transcripts are cached by content hash in `<output>/cache/media/` and are reused even on machines without a Whisper tool. Skipped with `--code-only`.
 4. **Build Graph** — Assemble nodes and edges, deduplicate. If `.codegraph/codegraph.db` exists in the project root, CodeGraph edges (calls, imports, contains, etc.) are merged automatically.
 5. **Cluster** — Leiden community detection + cohesion scoring.
 6. **Analyze** — God nodes, surprising connections, suggested questions.
@@ -672,6 +673,18 @@ Configure the LLM provider for semantic extraction (Pass 2). When this section i
 | `ollama_base_url` | `String` | `http://localhost:11434` | Override Ollama API endpoint. |
 | `openai_compatible_api_key` | `String` | — | Optional API key for OpenAI-compatible endpoint. |
 | `openai_compatible_base_url` | `String` | *required* | Base URL for OpenAI-compatible endpoint (e.g., vLLM, LM Studio). |
+
+### Media Transcription Configuration (`[media]`, env)
+
+Media transcription discovers a tool in this order: `GRAPHIFY_WHISPER_CMD` (custom command, transcript via stdout) → `whisper-cli` (whisper.cpp, needs a GGML model) → `whisper` (OpenAI Python CLI). `yt-dlp` is discovered separately for URL audio.
+
+| Source | Field / Var | Description |
+|--------|-------------|-------------|
+| `graphify-rs.toml` `[media]` | `model` | GGML model path (whisper.cpp) or model name (Python CLI). |
+| env | `WHISPER_MODEL` | Same as `[media].model`; config wins. |
+| env | `GRAPHIFY_WHISPER_CMD` | Custom transcription command; receives the media path as final argument, must print the transcript to stdout. |
+
+whisper.cpp expects the model at `WHISPER_MODEL` or `~/.graphify-rs/models/ggml-base.en.bin`.
 
 ### Neo4j Configuration (`[neo4j]`)
 

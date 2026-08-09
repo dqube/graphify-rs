@@ -7,8 +7,8 @@ use regex::RegexBuilder;
 use serde::{Deserialize, Serialize};
 
 use crate::constants::{
-    CODE_EXTENSIONS, DOC_EXTENSIONS, IMAGE_EXTENSIONS, OFFICE_EXTENSIONS, PAPER_EXTENSIONS,
-    PAPER_PEEK_CHARS, PAPER_SIGNAL_THRESHOLD, PAPER_SIGNALS,
+    CODE_EXTENSIONS, DOC_EXTENSIONS, IMAGE_EXTENSIONS, MEDIA_EXTENSIONS, OFFICE_EXTENSIONS,
+    PAPER_EXTENSIONS, PAPER_PEEK_CHARS, PAPER_SIGNAL_THRESHOLD, PAPER_SIGNALS,
 };
 
 /// The broad category a file belongs to.
@@ -23,6 +23,8 @@ pub enum FileType {
     Paper,
     /// Image file (PNG, JPG, SVG, etc.)
     Image,
+    /// Audio/video media (MP4, MP3, WAV, etc.) — transcribed via Whisper
+    Media,
 }
 
 impl std::fmt::Display for FileType {
@@ -32,6 +34,7 @@ impl std::fmt::Display for FileType {
             FileType::Document => write!(f, "document"),
             FileType::Paper => write!(f, "paper"),
             FileType::Image => write!(f, "image"),
+            FileType::Media => write!(f, "media"),
         }
     }
 }
@@ -71,6 +74,10 @@ pub fn classify_file(path: &Path) -> Option<FileType> {
             return None;
         }
         return Some(FileType::Image);
+    }
+
+    if MEDIA_EXTENSIONS.contains(&ext.as_str()) {
+        return Some(FileType::Media);
     }
 
     if OFFICE_EXTENSIONS.contains(&ext.as_str()) {

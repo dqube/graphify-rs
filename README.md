@@ -87,6 +87,8 @@ Rust rewrite of [graphify](https://github.com/safishamsi/graphify) (Python) — 
 
 **Pass 2 — Semantic extraction** (optional, `--no-llm` to skip): LLM API (Anthropic, OpenAI, Ollama, or OpenAI-compatible) discovers conceptual links, shared assumptions, design rationale. Edges tagged `INFERRED` (confidence 0.4–0.9). Configure via `[llm]` in `graphify-rs.toml`.
 
+**Media transcription** (optional): audio/video files (`.mp4`, `.mp3`, `.wav`, …) are transcribed with a locally installed Whisper tool (`whisper-cli`, `whisper`, or `GRAPHIFY_WHISPER_CMD`) and added to the graph as transcript nodes. Transcripts are cached by content hash and reused across builds and machines.
+
 ## Graph Algorithms
 
 7 advanced algorithms beyond basic traversal:
@@ -122,7 +124,7 @@ Agents auto-check the graph before architecture questions and rebuild after code
 
 ## Architecture
 
-14-crate Cargo workspace — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
+15-crate Cargo workspace — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
 
 | Crate | Role |
 |-------|------|
