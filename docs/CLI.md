@@ -8,6 +8,7 @@
 - [Commands](#commands)
   - [build](#graphify-rs-build) — Build knowledge graph
   - [query](#graphify-rs-query) — Query the graph
+  - [explain](#graphify-rs-explain) — Explain a node
   - [diff](#graphify-rs-diff) — Compare two graph snapshots
   - [stats](#graphify-rs-stats) — Show graph statistics
   - [watch](#graphify-rs-watch) — Auto-rebuild on file changes
@@ -52,30 +53,40 @@ Build the knowledge graph from files in a directory. This is the main pipeline: 
 | Flag | Short | Type | Default | Description |
 |------|-------|------|---------|-------------|
 | `--path <PATH>` | `-p` | `String` | `"."` | Root directory to scan for source files. |
-| `--output <DIR>` | `-o` | `String` | `~/.graphify-rs/<name>-<hash>/` | Output directory for all generated files. |
+| `--output <DIR>` | `-o` | `String` | `graphify-rs-out/` | Output directory for all generated files. |
 | `--no-llm` | | `bool` | `false` | Skip LLM semantic extraction (pass 2). Only AST extraction runs. |
 | `--code-only` | | `bool` | `false` | Only process code files, skip docs and papers. |
-| `--update` | | `bool` | `false` | Incremental rebuild: only re-extract new/modified files since last build. |
-| `--format <FMT,...>` | | `String` (comma-separated) | all formats | Export formats to generate. Available: `json`, `html`, `graphml`, `cypher`, `svg`, `wiki`, `obsidian`, `report`. |
+| `--no-viz` | | `bool` | `false` | Skip HTML/SVG visualization; output JSON and report only (overrides `--format`). |
+| `--cluster-only` | | `bool` | `false` | Skip detection and extraction; re-run Leiden clustering on the existing `graph.json` and re-export. |
+| `--mode <MODE>` | | `standard` \| `deep` | `standard` | Inference mode. `deep` adds an LLM semantic pass over the largest code files (up to 20), cached under `<output>/cache/deep/`. |
+| `--format <FMT,...>` | | `String` (comma-separated) | `json,report` | Export formats to generate. Available: `json`, `html`, `graphml`, `cypher`, `svg`, `wiki`, `obsidian`, `report`. |
 | `--max-viz-nodes <N>` | | `usize` | `2000` | Maximum nodes in HTML visualization. Larger values show more detail but may slow the browser. |
+
+Rebuilds are incremental by default: `changeindex.json` tracks file hashes and the build short-circuits when nothing changed.
 
 #### Examples
 
 ```bash
-# Full build of current directory, all export formats
+# Full build of current directory
 graphify-rs build
 
 # Build a specific project, output to custom dir
 graphify-rs build --path /path/to/project --output my-graph
 
-# Fast AST-only build (no Claude API calls)
+# Fast AST-only build (no LLM API calls)
 graphify-rs build --no-llm
 
 # Only code files, skip docs/papers
 graphify-rs build --code-only
 
-# Incremental rebuild after editing a few files
-graphify-rs build --update
+# Deep inference: extra LLM pass over the largest code files
+graphify-rs build --mode deep
+
+# Re-cluster the existing graph without re-extracting
+graphify-rs build --cluster-only
+
+# CI-friendly: JSON + report only, no visualization
+graphify-rs build --no-viz
 
 # Only generate JSON and HTML
 graphify-rs build --format json,html
@@ -83,8 +94,8 @@ graphify-rs build --format json,html
 # Only generate the report
 graphify-rs build --format report
 
-# Combine: fast incremental, code-only, JSON+report
-graphify-rs build --update --code-only --no-llm --format json,report
+# Combine: code-only, JSON+report, no viz
+graphify-rs build --code-only --no-llm --no-viz --format json,report
 ```
 
 #### Build Pipeline
@@ -96,6 +107,34 @@ graphify-rs build --update --code-only --no-llm --format json,report
 5. **Cluster** — Leiden community detection + cohesion scoring.
 6. **Analyze** — God nodes, surprising connections, suggested questions.
 7. **Export** — Write selected formats to `--output`.
+
+---
+
+### `graphify-rs explain`
+
+Explain a node in the knowledge graph: its metadata (ID, file, location), community assignment, degree, and neighbor edges grouped by relation with confidence scores.
+
+#### Parameters
+
+| Argument / Flag | Type | Default | Description |
+|-----------------|------|---------|-------------|
+| `<NODE>` | `String` | (required) | Node name or ID. Resolution order: exact ID → exact label (case-insensitive) → substring match. On ties, symbol nodes are preferred over file nodes, then highest degree. |
+| `--graph <PATH>` | `String` | `graphify-rs-out/graph.json` | Path to the graph JSON file. |
+
+#### Examples
+
+```bash
+# Explain a function by name
+graphify-rs explain cmd_build
+
+# Explain by exact node ID
+graphify-rs explain src_main_rs_cmd_build
+
+# Use a graph in a custom location
+graphify-rs explain cmd_build --graph my-graph/graph.json
+```
+
+Unknown names produce "did you mean" suggestions ranked by degree.
 
 ---
 
@@ -606,10 +645,12 @@ Create a `graphify-rs.toml` file in your project root (or run `graphify-rs init`
 
 | Field | Type | Default | CLI Override | Description |
 |-------|------|---------|-------------|-------------|
-| `output` | `String` | `~/.graphify-rs/<name>-<hash>/` | `--output` | Output directory for graph files. |
+| `output` | `String` | `graphify-rs-out/` | `--output` | Output directory for graph files. |
 | `no_llm` | `bool` | `false` | `--no-llm` | Disable LLM-based semantic extraction. |
 | `code_only` | `bool` | `false` | `--code-only` | Only process code files (skip docs/papers). |
-| `formats` | `String[]` | `[]` (all formats) | `--format` | Export formats to generate. |
+| `no_viz` | `bool` | `false` | `--no-viz` | Skip HTML/SVG visualization output. |
+| `mode` | `String` | `standard` | `--mode` | Inference mode: `standard` or `deep`. |
+| `formats` | `String[]` | `[]` (`json,report`) | `--format` | Export formats to generate. |
 
 ### LLM Configuration (`[llm]`)
 

@@ -7,6 +7,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 mod cmd_build;
+mod cmd_explain;
 mod config;
 mod install;
 mod paths;
@@ -47,6 +48,15 @@ enum Commands {
         no_llm: bool,
         #[arg(long)]
         code_only: bool,
+        /// Skip HTML/SVG visualization; output JSON and report only
+        #[arg(long)]
+        no_viz: bool,
+        /// Skip extraction; re-run clustering on the existing graph.json
+        #[arg(long)]
+        cluster_only: bool,
+        /// Inference mode: `deep` runs an extra LLM pass over the largest code files
+        #[arg(long, value_parser = ["standard", "deep"])]
+        mode: Option<String>,
         /// Export formats (comma-separated). Available: json,html,graphml,cypher,svg,wiki,obsidian,report. Default: json,report
         #[arg(long, value_delimiter = ',')]
         format: Vec<String>,
@@ -66,6 +76,14 @@ enum Commands {
         dfs: bool,
         #[arg(long, default_value_t = 2000)]
         budget: usize,
+        #[arg(long)]
+        graph: Option<String>,
+    },
+    /// Explain a node: metadata, community, and neighbors
+    Explain {
+        /// Node name or ID to explain
+        node: String,
+        /// Path to graph.json (default: graphify-rs-out/graph.json)
         #[arg(long)]
         graph: Option<String>,
     },
@@ -289,6 +307,9 @@ async fn main() -> Result<()> {
             output,
             no_llm,
             code_only,
+            no_viz,
+            cluster_only,
+            mode,
             format,
             max_viz_nodes,
         } => {
@@ -303,6 +324,9 @@ async fn main() -> Result<()> {
             };
             let effective_no_llm = no_llm || app_cfg.no_llm.unwrap_or(false);
             let effective_code_only = code_only || app_cfg.code_only.unwrap_or(false);
+            let effective_no_viz = no_viz || app_cfg.no_viz.unwrap_or(false);
+            let effective_mode = mode.or(app_cfg.mode).unwrap_or_else(|| "standard".into());
+            let deep = effective_mode.eq_ignore_ascii_case("deep");
             let effective_formats = if format.is_empty() {
                 app_cfg.formats.unwrap_or_default()
             } else {
@@ -319,6 +343,9 @@ async fn main() -> Result<()> {
                 cli.jobs,
                 max_viz_nodes,
                 app_cfg.llm,
+                effective_no_viz,
+                cluster_only,
+                deep,
             )
             .await?;
         }
@@ -338,6 +365,15 @@ async fn main() -> Result<()> {
                     .to_string()
             });
             cmd_query(&question, dfs, budget, &graph_path)?;
+        }
+        Commands::Explain { node, graph } => {
+            let graph_path = graph.unwrap_or_else(|| {
+                paths::resolve_default_output(Path::new("."))
+                    .join("graph.json")
+                    .to_string_lossy()
+                    .to_string()
+            });
+            cmd_explain::cmd_explain(&node, &graph_path)?;
         }
         Commands::Benchmark { graph_path } => {
             let gp = graph_path.unwrap_or_else(|| {
@@ -461,6 +497,9 @@ async fn main() -> Result<()> {
                     None,
                     None,
                     None,
+                    false,
+                    false,
+                    false,
                 )
                 .await
                 .context("Auto-build failed")?;
@@ -778,8 +817,14 @@ fn cmd_init() -> Result<()> {
 # Only process code files (skip docs/papers)
 # code_only = false
 
+# Skip HTML/SVG visualization (JSON + report only)
+# no_viz = false
+
+# Inference mode: standard | deep (deep adds an LLM pass over largest code files)
+# mode = "standard"
+
 # Export formats (comma-separated). Available: json,html,graphml,cypher,svg,wiki,obsidian,report
-# Leave empty or omit for all formats.
+# Leave empty or omit for the default set (json, report).
 # formats = ["json", "html", "report"]
 
 # LLM provider for semantic extraction

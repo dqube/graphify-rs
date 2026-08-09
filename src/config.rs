@@ -8,6 +8,8 @@ pub struct Config {
     pub output: Option<String>,
     pub no_llm: Option<bool>,
     pub code_only: Option<bool>,
+    pub no_viz: Option<bool>,
+    pub mode: Option<String>,
     pub formats: Option<Vec<String>>,
     pub llm: Option<LLMConfig>,
 }

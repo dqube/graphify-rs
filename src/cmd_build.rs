@@ -22,6 +22,9 @@ pub async fn cmd_build(
     jobs: Option<usize>,
     max_viz_nodes: Option<usize>,
     llm_config: Option<crate::config::LLMConfig>,
+    no_viz: bool,
+    cluster_only: bool,
+    deep: bool,
 ) -> Result<()> {
     let root = PathBuf::from(path);
     let output_dir = PathBuf::from(output);
@@ -33,7 +36,23 @@ pub async fn cmd_build(
     } else {
         formats.iter().map(std::string::String::as_str).collect()
     };
-    let should_export = |name: &str| selected.iter().any(|s| s.eq_ignore_ascii_case(name));
+    let should_export = |name: &str| {
+        // --no-viz suppresses visual formats even when explicitly requested.
+        if no_viz && (name.eq_ignore_ascii_case("html") || name.eq_ignore_ascii_case("svg")) {
+            return false;
+        }
+        selected.iter().any(|s| s.eq_ignore_ascii_case(name))
+    };
+
+    if cluster_only {
+        return cmd_cluster_only(
+            &root,
+            &output_dir,
+            max_viz_nodes,
+            &should_export,
+            verb,
+        );
+    }
 
     let (detection, changed) = step_detect(&root, &output_dir, verb)?;
 
@@ -73,6 +92,7 @@ pub async fn cmd_build(
             verb,
             jobs,
             llm_config.as_ref(),
+            deep,
         )
         .await;
     }
@@ -102,19 +122,11 @@ pub async fn cmd_build(
         community_labels,
     } = step_cluster(&mut graph, verb);
 
-    info_print!(verb, "  {} graph...", "Analyzing".cyan());
-    let god_list = graphify_analyze::god_nodes(&graph, 10);
-    let surprise_list = graphify_analyze::surprising_connections(&graph, &communities, 5);
-    let questions = graphify_analyze::suggest_questions(&graph, &communities, &community_labels, 7);
-
-    step_export(
+    step_analyze_and_export(
         &graph,
         &communities,
         &cohesion,
         &community_labels,
-        &god_list,
-        &surprise_list,
-        &questions,
         &detection,
         &output_dir,
         path,
@@ -131,6 +143,114 @@ pub async fn cmd_build(
     );
 
     Ok(())
+}
+
+/// `--cluster-only`: load an existing graph.json, re-run Leiden clustering and
+/// analysis, then re-export. Skips detection and both extraction passes.
+fn cmd_cluster_only(
+    root: &Path,
+    output_dir: &Path,
+    max_viz_nodes: Option<usize>,
+    should_export: &impl Fn(&str) -> bool,
+    verb: Verbosity,
+) -> Result<()> {
+    let graph_path = output_dir.join("graph.json");
+    if !graph_path.exists() {
+        anyhow::bail!(
+            "--cluster-only requires an existing graph at {} — run `graphify-rs build` first",
+            graph_path.display()
+        );
+    }
+
+    info_print!(
+        verb,
+        "  {} existing graph from {}...",
+        "Loading".cyan(),
+        graph_path.display()
+    );
+    let mut graph = graphify_serve::load_graph(&graph_path)
+        .with_context(|| format!("failed to load graph from {}", graph_path.display()))?;
+    info_print!(
+        verb,
+        "  Graph: {} nodes, {} edges",
+        graph.node_count().to_string().bold(),
+        graph.edge_count().to_string().bold()
+    );
+
+    let ClusterResult {
+        communities,
+        cohesion,
+        community_labels,
+    } = step_cluster(&mut graph, verb);
+
+    // No fresh detection in this mode: report zeros for corpus stats.
+    let detection = graphify_detect::DetectResult {
+        files: HashMap::new(),
+        total_files: 0,
+        total_words: 0,
+        needs_graph: true,
+        warning: None,
+        skipped_sensitive: Vec::new(),
+        graphifyignore_patterns: 0,
+    };
+
+    step_analyze_and_export(
+        &graph,
+        &communities,
+        &cohesion,
+        &community_labels,
+        &detection,
+        output_dir,
+        &root.to_string_lossy(),
+        max_viz_nodes,
+        should_export,
+        verb,
+    )?;
+
+    info_print!(
+        verb,
+        "\n{} Re-clustered graph in {}",
+        "✓ Done!".green().bold(),
+        output_dir.display()
+    );
+
+    Ok(())
+}
+
+/// Shared analyze + export tail of the build pipeline.
+#[allow(clippy::too_many_arguments)]
+fn step_analyze_and_export(
+    graph: &graphify_core::graph::KnowledgeGraph,
+    communities: &HashMap<usize, Vec<String>>,
+    cohesion: &HashMap<usize, f64>,
+    community_labels: &HashMap<usize, String>,
+    detection: &graphify_detect::DetectResult,
+    output_dir: &Path,
+    root: &str,
+    max_viz_nodes: Option<usize>,
+    should_export: impl Fn(&str) -> bool,
+    verb: Verbosity,
+) -> Result<()> {
+    info_print!(verb, "  {} graph...", "Analyzing".cyan());
+    let god_list = graphify_analyze::god_nodes(graph, 10);
+    let surprise_list = graphify_analyze::surprising_connections(graph, communities, 5);
+    let questions = graphify_analyze::suggest_questions(graph, communities, community_labels, 7);
+
+    step_export(
+        graph,
+        communities,
+        cohesion,
+        community_labels,
+        &god_list,
+        &surprise_list,
+        &questions,
+        detection,
+        output_dir,
+        root,
+        max_viz_nodes,
+        should_export,
+        verb,
+    )
 }
 
 fn step_detect(
@@ -304,6 +424,10 @@ fn step_extract_ast(
     Ok(vec![ast_result])
 }
 
+/// Maximum number of code files sent through the LLM in `--mode deep`.
+const DEEP_MODE_CODE_FILE_CAP: usize = 20;
+
+#[allow(clippy::too_many_arguments)]
 async fn step_extract_semantic(
     root: &Path,
     cache_dir: &Path,
@@ -312,6 +436,7 @@ async fn step_extract_semantic(
     verb: Verbosity,
     jobs: Option<usize>,
     llm_config: Option<&crate::config::LLMConfig>,
+    deep: bool,
 ) {
     let n_doc = detection
         .files
@@ -324,13 +449,33 @@ async fn step_extract_semantic(
 
     let provider_config = resolve_llm_config(llm_config, verb);
     if let Some(config) = provider_config {
-        let doc_files: Vec<PathBuf> = detection
+        let mut doc_files: Vec<PathBuf> = detection
             .files
             .get(&graphify_detect::FileType::Document)
             .into_iter()
             .chain(detection.files.get(&graphify_detect::FileType::Paper))
             .flat_map(|v| v.iter().map(|f| root.join(f)))
             .collect();
+
+        // --mode deep: also run a semantic pass over the largest code files.
+        let mut code_paths: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+        if deep {
+            let mut code_files: Vec<PathBuf> = detection
+                .files
+                .get(&graphify_detect::FileType::Code)
+                .into_iter()
+                .flat_map(|v| v.iter().map(|f| root.join(f)))
+                .collect();
+            // Prefer larger files — they carry the most design rationale.
+            code_files.sort_by_key(|p| {
+                std::cmp::Reverse(std::fs::metadata(p).map_or(0, |m| m.len()))
+            });
+            code_files.truncate(DEEP_MODE_CODE_FILE_CAP);
+            for p in code_files {
+                code_paths.insert(p.clone());
+                doc_files.push(p);
+            }
+        }
 
         if !doc_files.is_empty() {
             let provider_name = match config.provider {
@@ -340,6 +485,18 @@ async fn step_extract_semantic(
                 graphify_extract::semantic::LLMProvider::OpenAICompatible => "OpenAI-compatible",
             };
 
+            // Deep-mode code files use a separate cache namespace: the shared
+            // cache is keyed only by content hash, and a semantic result must
+            // never be served to the AST pass of a later non-deep build.
+            let deep_cache_dir = cache_dir.join("deep");
+            let cache_for = |p: &Path| -> &Path {
+                if code_paths.contains(p) {
+                    &deep_cache_dir
+                } else {
+                    cache_dir
+                }
+            };
+
             // Pre-split: serve cache hits immediately, collect only paths for uncached files.
             // File contents are read inside each task after acquiring the semaphore so at most
             // `concurrency` files are in memory at once.
@@ -347,7 +504,7 @@ async fn step_extract_semantic(
             for doc_path in &doc_files {
                 if let Some(cached) = graphify_cache::load_cached_from::<
                     graphify_core::model::ExtractionResult,
-                >(doc_path, root, cache_dir)
+                >(doc_path, root, cache_for(doc_path))
                 {
                     extractions.push(cached);
                     continue;
@@ -360,9 +517,10 @@ async fn step_extract_semantic(
                 if cached_count > 0 {
                     info_print!(
                         verb,
-                        "  {} {} doc/paper files (all cached)",
+                        "  {} {} {} files (all cached)",
                         "Semantic extraction".cyan(),
                         cached_count,
+                        if deep { "doc/paper/code" } else { "doc/paper" },
                     );
                 }
             } else {
@@ -373,9 +531,10 @@ async fn step_extract_semantic(
                 };
                 info_print!(
                     verb,
-                    "  {} on {} doc/paper files via {} ({}){} ...",
+                    "  {} on {} {} files via {} ({}){} ...",
                     "Semantic extraction".cyan(),
                     to_process.len(),
+                    if deep { "doc/paper/code" } else { "doc/paper" },
                     provider_name,
                     config.model,
                     cache_note,
@@ -402,7 +561,9 @@ async fn step_extract_semantic(
 
             let mut handles = Vec::new();
             for doc_p in to_process {
-                let file_type = if doc_p.extension().and_then(|e| e.to_str()) == Some("pdf") {
+                let file_type = if code_paths.contains(&doc_p) {
+                    "code"
+                } else if doc_p.extension().and_then(|e| e.to_str()) == Some("pdf") {
                     "paper"
                 } else {
                     "document"
@@ -438,8 +599,12 @@ async fn step_extract_semantic(
                             sem_result.nodes.len(),
                             sem_result.edges.len()
                         );
-                        let _ =
-                            graphify_cache::save_cached_to(&doc_p, &sem_result, root, cache_dir);
+                        let _ = graphify_cache::save_cached_to(
+                            &doc_p,
+                            &sem_result,
+                            root,
+                            cache_for(&doc_p),
+                        );
                         extractions.push(sem_result);
                     }
                     Ok(Ok((doc_p, Err(e)))) => {
@@ -459,7 +624,7 @@ async fn step_extract_semantic(
                                 &doc_p,
                                 &graphify_core::model::ExtractionResult::default(),
                                 root,
-                                cache_dir,
+                                cache_for(&doc_p),
                             );
                         }
                     }

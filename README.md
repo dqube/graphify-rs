@@ -150,14 +150,18 @@ Agents auto-check the graph before architecture questions and rebuild after code
 
 ```bash
 graphify-rs build [--path .] [--no-llm] [--format json,html]   # build graph
+graphify-rs build --mode deep                                   # extra LLM pass over largest code files
+graphify-rs build --cluster-only                                # re-cluster existing graph.json
+graphify-rs build --no-viz                                      # skip HTML/SVG, JSON + report only
 graphify-rs query "question" [--dfs] [--budget 2000]            # query
+graphify-rs explain <node>                                      # node metadata, community, neighbors
 graphify-rs watch --path .                                       # auto-rebuild
 graphify-rs serve                                                 # MCP server
 graphify-rs diff old.json new.json                               # compare
 graphify-rs stats graph.json                                     # statistics
 ```
 
-Full reference: **[docs/CLI.md](docs/CLI.md)** (22 subcommands)
+Full reference: **[docs/CLI.md](docs/CLI.md)** (23 subcommands)
 
 ## Contributing
 
