@@ -160,14 +160,8 @@ mod tests {
 
     #[test]
     fn referenced_templates_share_id_across_files() {
-        let a = extract_blade(
-            Path::new("a.blade.php"),
-            "@extends('layouts.app')\n",
-        );
-        let b = extract_blade(
-            Path::new("b.blade.php"),
-            "@extends('layouts.app')\n",
-        );
+        let a = extract_blade(Path::new("a.blade.php"), "@extends('layouts.app')\n");
+        let b = extract_blade(Path::new("b.blade.php"), "@extends('layouts.app')\n");
         let a_target = &a
             .edges
             .iter()
@@ -215,8 +209,7 @@ mod tests {
 
     #[test]
     fn yield_matches_section_name() {
-        let parent =
-            extract_blade(Path::new("layout.blade.php"), "@yield('body')\n");
+        let parent = extract_blade(Path::new("layout.blade.php"), "@yield('body')\n");
         let child = extract_blade(
             Path::new("home.blade.php"),
             "@extends('layout')\n@section('body')\nhi\n@endsection\n",

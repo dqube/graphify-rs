@@ -75,7 +75,9 @@ impl MinHashCoeffs {
         // are always identical.
         let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
         let mut next = || {
-            state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1);
             state
         };
         let mut a = Vec::with_capacity(num_perm);
@@ -113,8 +115,10 @@ impl<'c> MinHash<'c> {
         // MinHash quality depends only on uniform distribution.
         let hv = short_hash(v) as u64;
         for i in 0..self.hashvalues.len() {
-            let phv =
-                (self.coeffs.a[i].wrapping_mul(hv).wrapping_add(self.coeffs.b[i])) % MERSENNE_PRIME;
+            let phv = (self.coeffs.a[i]
+                .wrapping_mul(hv)
+                .wrapping_add(self.coeffs.b[i]))
+                % MERSENNE_PRIME;
             let phv = phv & HASH_MASK;
             if phv < self.hashvalues[i] {
                 self.hashvalues[i] = phv;
@@ -204,7 +208,10 @@ impl MinHashLsh {
     fn insert(&mut self, key: &str, mh: &MinHash<'_>) {
         for i in 0..self.b {
             let band: Vec<u64> = mh.hashvalues[i * self.r..(i + 1) * self.r].to_vec();
-            self.tables[i].entry(band).or_default().push(key.to_string());
+            self.tables[i]
+                .entry(band)
+                .or_default()
+                .push(key.to_string());
         }
     }
 
@@ -395,14 +402,8 @@ fn is_variant_pair(a: &str, b: &str) -> bool {
             }
             let suffix: String = chars[stem_len..].iter().collect();
             let suffix_ok = {
-                let digits = suffix
-                    .chars()
-                    .take_while(|c| c.is_ascii_digit())
-                    .count();
-                let rest_letters = suffix
-                    .chars()
-                    .skip(digits)
-                    .all(|c| c.is_ascii_lowercase());
+                let digits = suffix.chars().take_while(|c| c.is_ascii_digit()).count();
+                let rest_letters = suffix.chars().skip(digits).all(|c| c.is_ascii_lowercase());
                 let all_letters =
                     suffix.chars().all(|c| c.is_ascii_lowercase()) && suffix.chars().count() >= 2;
                 (digits > 0 && rest_letters) || all_letters
@@ -508,7 +509,9 @@ impl UnionFind {
         }
     }
     fn find(&mut self, x: &str) -> String {
-        self.parent.entry(x.to_string()).or_insert_with(|| x.to_string());
+        self.parent
+            .entry(x.to_string())
+            .or_insert_with(|| x.to_string());
         let mut cur = x.to_string();
         loop {
             let p = self.parent.get(&cur).unwrap().clone();
@@ -561,8 +564,11 @@ fn pick_winner<'a>(nodes: &'a [&'a GraphNode]) -> &'a GraphNode {
     nodes
         .iter()
         .min_by(|a, b| {
-            (has_suffix(a) as u32, a.id.len(), &a.id)
-                .cmp(&(has_suffix(b) as u32, b.id.len(), &b.id))
+            (has_suffix(a) as u32, a.id.len(), &a.id).cmp(&(
+                has_suffix(b) as u32,
+                b.id.len(),
+                &b.id,
+            ))
         })
         .copied()
         .unwrap()
@@ -704,9 +710,7 @@ pub fn deduplicate_entities(
                 let nb_norm = &norm_cache[&nb_id];
 
                 let xfile = node.source_file != neighbour.source_file;
-                let mut score = if xfile
-                    && norm_label.len().max(nb_norm.len()) >= SHORT_LABEL_MAX
-                {
+                let mut score = if xfile && norm_label.len().max(nb_norm.len()) >= SHORT_LABEL_MAX {
                     jaro_pct(norm_label, nb_norm)
                 } else {
                     jaro_winkler_pct(norm_label, nb_norm)
@@ -735,11 +739,9 @@ pub fn deduplicate_entities(
                     continue;
                 }
 
-                if let (Some(&c1), Some(&c2)) =
-                    (communities.get(&node.id), communities.get(&nb_id))
+                if let (Some(&c1), Some(&c2)) = (communities.get(&node.id), communities.get(&nb_id))
                     && c1 == c2
-                    && norm_label.chars().count().min(nb_norm.chars().count())
-                        >= SHORT_LABEL_MAX
+                    && norm_label.chars().count().min(nb_norm.chars().count()) >= SHORT_LABEL_MAX
                 {
                     score += COMMUNITY_BOOST;
                 }
@@ -756,7 +758,7 @@ pub fn deduplicate_entities(
                     uf.union(&winner_id, &node.id);
                     uf.union(&winner_id, &nb_id);
                     stats.fuzzy_merges += 1;
-                } else if score >= LLM_LOW && score < LLM_HIGH && dedup_llm_backend.is_some() {
+                } else if (LLM_LOW..LLM_HIGH).contains(&score) && dedup_llm_backend.is_some() {
                     let key = if node.id < nb_id {
                         (node.id.clone(), nb_id.clone())
                     } else {
@@ -926,7 +928,10 @@ mod tests {
     #[test]
     fn numeric_tokens_differ_blocks_numbered_siblings() {
         assert!(numeric_tokens_differ("ADR 0011 D5", "ADR 0013 D4"));
-        assert!(numeric_tokens_differ("3.1 Product Goals", "1.1 Product Goals"));
+        assert!(numeric_tokens_differ(
+            "3.1 Product Goals",
+            "1.1 Product Goals"
+        ));
         assert!(!numeric_tokens_differ("no numbers", "no numbers"));
         // Zero-padding is normalised.
         assert!(!numeric_tokens_differ("v09", "v9"));
@@ -944,7 +949,11 @@ mod tests {
             deduplicate_entities(nodes, edges, &HashMap::new(), None);
         assert_eq!(stats.exact_merges, 1, "same file merged");
         assert_eq!(out_nodes.len(), 2, "cross-file same-label kept apart");
-        assert!(out_edges.iter().any(|e| e.source == "a1" && e.target == "b1"));
+        assert!(
+            out_edges
+                .iter()
+                .any(|e| e.source == "a1" && e.target == "b1")
+        );
     }
 
     #[test]
@@ -997,8 +1006,7 @@ mod tests {
         ];
         let (out_llm, _, stats_llm) =
             deduplicate_entities(nodes.clone(), vec![], &HashMap::new(), Some("openai"));
-        let (out_off, _, stats_off) =
-            deduplicate_entities(nodes, vec![], &HashMap::new(), None);
+        let (out_off, _, stats_off) = deduplicate_entities(nodes, vec![], &HashMap::new(), None);
         assert_eq!(out_llm.len(), out_off.len());
         assert_eq!(stats_off.ambiguous_pairs, 0);
         // Flag doesn't cause extra merges by itself — LLM verdicts are a

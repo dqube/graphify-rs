@@ -16,12 +16,10 @@ use regex::Regex;
 static RE_SLN_PROJECT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?m)^Project\("\{[^}]+\}"\)\s*=\s*"([^"]+)",\s*"([^"]+)""#).unwrap()
 });
-static RE_PACKAGE_REF: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"<PackageReference\s+(?:Include|Update)="([^"]+)""#).unwrap()
-});
-static RE_PROJECT_REF: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"<ProjectReference\s+Include="([^"]+)""#).unwrap()
-});
+static RE_PACKAGE_REF: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"<PackageReference\s+(?:Include|Update)="([^"]+)""#).unwrap());
+static RE_PROJECT_REF: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"<ProjectReference\s+Include="([^"]+)""#).unwrap());
 static RE_XAML_CLASS: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"x:Class="([^"]+)""#).unwrap());
 static RE_INHERITS: LazyLock<Regex> =
@@ -35,10 +33,10 @@ pub(crate) fn extract_dotnet_proj(path: &Path, source: &str) -> ExtractionResult
     let ps = path_str(path);
 
     let push_ref = |label: &str,
-                        line: usize,
-                        relation: &str,
-                        node_type: NodeType,
-                        result: &mut ExtractionResult| {
+                    line: usize,
+                    relation: &str,
+                    node_type: NodeType,
+                    result: &mut ExtractionResult| {
         let ref_id = make_id(&[&ps, relation, label]);
         result.nodes.push(GraphNode {
             id: ref_id.clone(),
@@ -130,7 +128,8 @@ mod tests {
 
     #[test]
     fn extracts_sln_projects() {
-        let src = "Project(\"{FAE04EC0}\") = \"Core\", \"Core\\Core.csproj\", \"{GUID}\"\nEndProject\n";
+        let src =
+            "Project(\"{FAE04EC0}\") = \"Core\", \"Core\\Core.csproj\", \"{GUID}\"\nEndProject\n";
         let r = extract_dotnet_proj(Path::new("App.sln"), src);
         assert!(r.nodes.iter().any(|n| n.label == "Core"));
     }

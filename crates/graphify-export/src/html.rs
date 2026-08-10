@@ -95,7 +95,12 @@ pub fn export_html(
             (n, graph.degree(&n.id), cid)
         })
         .collect();
-    let max_degree = rendered.iter().map(|(_, d, _)| *d).max().unwrap_or(1).max(1) as f64;
+    let max_degree = rendered
+        .iter()
+        .map(|(_, d, _)| *d)
+        .max()
+        .unwrap_or(1)
+        .max(1) as f64;
 
     let vis_nodes: Vec<serde_json::Value> = rendered
         .iter()
@@ -107,7 +112,11 @@ pub fn export_html(
             // tooltip and info panel. Full labeling is a wall of text past
             // ~150 nodes.
             let size = 10.0 + 30.0 * degree as f64 / max_degree;
-            let font_size = if degree as f64 >= 0.15 * max_degree { 12 } else { 0 };
+            let font_size = if degree as f64 >= 0.15 * max_degree {
+                12
+            } else {
+                0
+            };
             let community_name = cid.map(|c| {
                 community_labels
                     .get(&c)
@@ -868,7 +877,10 @@ mod tests {
         );
         // Sizes normalized: hub at the 40 cap, leaves near the 10 floor.
         assert!(content.contains(r#""size":40.0"#) || content.contains(r#""size":40"#));
-        assert!(content.contains(r#""size":13.3"#), "leaf size 10 + 30*(1/9)");
+        assert!(
+            content.contains(r#""size":13.3"#),
+            "leaf size 10 + 30*(1/9)"
+        );
     }
 
     #[test]
@@ -930,7 +942,12 @@ mod tests {
         let path = export_html(&kg, &communities, &HashMap::new(), dir.path(), None).unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
 
-        for id in ["\"search-wrap\"", "\"info-panel\"", "\"legend-wrap\"", "\"stats\""] {
+        for id in [
+            "\"search-wrap\"",
+            "\"info-panel\"",
+            "\"legend-wrap\"",
+            "\"stats\"",
+        ] {
             assert!(content.contains(id), "sidebar scaffold missing {id}");
         }
         assert!(content.contains("Click a node to inspect it"));
@@ -948,7 +965,10 @@ mod tests {
         let path = export_html(&kg, &communities, &HashMap::new(), dir.path(), None).unwrap();
         let content = std::fs::read_to_string(&path).unwrap();
 
-        assert!(!content.contains("var LEGEND = [];"), "legend must not be empty");
+        assert!(
+            !content.contains("var LEGEND = [];"),
+            "legend must not be empty"
+        );
         assert!(content.contains(r#""label":"Community 0""#));
         assert!(content.contains(r#""label":"Community 1""#));
     }

@@ -180,10 +180,7 @@ pub fn transcribe(media_path: &Path, config: &MediaConfig) -> Result<Option<Tran
     let text = run_transcriber(&transcriber, media_path)?;
     let text = text.trim().to_string();
     if text.is_empty() {
-        bail!(
-            "transcription of {} produced no text",
-            media_path.display()
-        );
+        bail!("transcription of {} produced no text", media_path.display());
     }
     save_transcript(&config.cache_dir, media_path, &text)?;
     info!(file = %media_path.display(), tool = transcriber.name(), "transcribed media");
@@ -216,10 +213,7 @@ fn run_transcriber(transcriber: &Transcriber, media_path: &Path) -> Result<Strin
         }
         Transcriber::WhisperCpp { binary, model } => {
             // whisper-cli writes <prefix>.txt when given -otxt -of <prefix>.
-            let tmp = std::env::temp_dir().join(format!(
-                "graphify-whisper-{}",
-                std::process::id()
-            ));
+            let tmp = std::env::temp_dir().join(format!("graphify-whisper-{}", std::process::id()));
             let prefix = tmp.join("out");
             std::fs::create_dir_all(&tmp)?;
             let output = Command::new(binary)
@@ -245,10 +239,7 @@ fn run_transcriber(transcriber: &Transcriber, media_path: &Path) -> Result<Strin
             Ok(text)
         }
         Transcriber::WhisperPython { binary, model } => {
-            let tmp = std::env::temp_dir().join(format!(
-                "graphify-whisper-{}",
-                std::process::id()
-            ));
+            let tmp = std::env::temp_dir().join(format!("graphify-whisper-{}", std::process::id()));
             std::fs::create_dir_all(&tmp)?;
             let output = Command::new(binary)
                 .arg(media_path)

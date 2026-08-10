@@ -664,12 +664,7 @@ mod tests {
     fn test_rebuild_empty_dir() {
         let dir = tempfile::tempdir().unwrap();
         let output = tempfile::tempdir().unwrap();
-        let result = rebuild_code(
-            dir.path(),
-            output.path(),
-            None,
-            &RebuildOptions::default(),
-        );
+        let result = rebuild_code(dir.path(), output.path(), None, &RebuildOptions::default());
         assert!(result.is_ok());
     }
 
@@ -690,13 +685,8 @@ mod tests {
         )
         .unwrap();
 
-        let outcome = rebuild_code(
-            dir.path(),
-            output.path(),
-            None,
-            &RebuildOptions::default(),
-        )
-        .unwrap();
+        let outcome =
+            rebuild_code(dir.path(), output.path(), None, &RebuildOptions::default()).unwrap();
         assert!(outcome.nodes > 0);
 
         assert!(output.path().join("graph.json").exists());
@@ -729,13 +719,7 @@ mod tests {
         )
         .unwrap();
 
-        rebuild_code(
-            dir.path(),
-            output.path(),
-            None,
-            &RebuildOptions::default(),
-        )
-        .unwrap();
+        rebuild_code(dir.path(), output.path(), None, &RebuildOptions::default()).unwrap();
 
         // Stand in for `label`: name every community in the graph on disk.
         let path = output.path().join("graph.json");
@@ -749,13 +733,8 @@ mod tests {
         }
         std::fs::write(&path, doc.to_string()).unwrap();
 
-        let outcome = rebuild_code(
-            dir.path(),
-            output.path(),
-            None,
-            &RebuildOptions::default(),
-        )
-        .unwrap();
+        let outcome =
+            rebuild_code(dir.path(), output.path(), None, &RebuildOptions::default()).unwrap();
 
         assert!(
             outcome.labels_preserved > 0,
@@ -776,13 +755,8 @@ mod tests {
             .count();
         assert!(named > 0, "names were not persisted back into graph.json");
 
-        let third = rebuild_code(
-            dir.path(),
-            output.path(),
-            None,
-            &RebuildOptions::default(),
-        )
-        .unwrap();
+        let third =
+            rebuild_code(dir.path(), output.path(), None, &RebuildOptions::default()).unwrap();
         assert!(
             third.labels_preserved > 0,
             "names survived one rebuild but not the next"
@@ -802,25 +776,14 @@ mod tests {
         .unwrap();
         std::fs::write(src.join("extra.rs"), "pub fn a() {}\npub fn b() {}\n").unwrap();
 
-        rebuild_code(
-            dir.path(),
-            output.path(),
-            None,
-            &RebuildOptions::default(),
-        )
-        .unwrap();
+        rebuild_code(dir.path(), output.path(), None, &RebuildOptions::default()).unwrap();
         let before = std::fs::read_to_string(output.path().join("graph.json")).unwrap();
 
         // Delete half the corpus, as a broken extraction would effectively do.
         std::fs::remove_file(src.join("extra.rs")).unwrap();
 
-        let err = rebuild_code(
-            dir.path(),
-            output.path(),
-            None,
-            &RebuildOptions::default(),
-        )
-        .unwrap_err();
+        let err =
+            rebuild_code(dir.path(), output.path(), None, &RebuildOptions::default()).unwrap_err();
         assert!(err.to_string().contains("refusing to overwrite"));
         assert_eq!(
             std::fs::read_to_string(output.path().join("graph.json")).unwrap(),
@@ -853,12 +816,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = rebuild_code(
-            dir.path(),
-            output.path(),
-            None,
-            &RebuildOptions::default(),
-        );
+        let result = rebuild_code(dir.path(), output.path(), None, &RebuildOptions::default());
         assert!(result.is_ok());
 
         let changed = vec![src.join("main.rs")];

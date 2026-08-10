@@ -17,8 +17,8 @@ use serde_json::{Value, json};
 /// Categorical palette used for community coloring — verbatim from
 /// `graphify.exporters.base.COMMUNITY_COLORS`.
 const COMMUNITY_COLORS: &[&str] = &[
-    "#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F",
-    "#EDC948", "#B07AA1", "#FF9DA7", "#9C755F", "#BAB0AC",
+    "#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F", "#EDC948", "#B07AA1", "#FF9DA7",
+    "#9C755F", "#BAB0AC",
 ];
 
 /// HTML-escape for values that end up inside HTML text/attribute contexts.
@@ -443,8 +443,7 @@ fn build_legend(
         cids = communities.keys().copied().collect();
     }
     cids.sort();
-    cids
-        .into_iter()
+    cids.into_iter()
         .map(|cid| {
             let color = COMMUNITY_COLORS[cid % COMMUNITY_COLORS.len()];
             let label = community_labels
@@ -454,7 +453,10 @@ fn build_legend(
             let count = communities
                 .get(&cid)
                 .map(|members| {
-                    members.iter().filter(|id| included_nodes.contains(*id)).count()
+                    members
+                        .iter()
+                        .filter(|id| included_nodes.contains(*id))
+                        .count()
                 })
                 .unwrap_or(0);
             json!({
@@ -497,7 +499,8 @@ pub fn render_graph_html(
     );
     let vis_edges = build_vis_edges(&all_edges, included_nodes);
     let legend = build_legend(communities, community_labels, included_nodes);
-    let hyperedges_val: Value = serde_json::to_value(&graph.hyperedges).unwrap_or(Value::Array(vec![]));
+    let hyperedges_val: Value =
+        serde_json::to_value(&graph.hyperedges).unwrap_or(Value::Array(vec![]));
 
     let nodes_json = js_safe(&Value::Array(vis_nodes.clone()));
     let edges_json = js_safe(&Value::Array(vis_edges.clone()));
@@ -507,9 +510,8 @@ pub fn render_graph_html(
     let n_nodes = vis_nodes.len();
     let n_edges = vis_edges.len();
     let n_communities = community_labels.len().max(communities.len());
-    let stats = format!(
-        "{n_nodes} nodes &middot; {n_edges} edges &middot; {n_communities} communities"
-    );
+    let stats =
+        format!("{n_nodes} nodes &middot; {n_edges} edges &middot; {n_communities} communities");
     let escaped_title = html_escape(title);
 
     format!(

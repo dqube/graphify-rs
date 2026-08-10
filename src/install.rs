@@ -375,7 +375,10 @@ pub fn vscode_install(project_root: &Path) -> Result<()> {
 
     let settings_path = project_root.join(".vscode/settings.json");
     write_vscode_settings_hook(&settings_path)?;
-    println!("  Wrote instructions reference to {}", settings_path.display());
+    println!(
+        "  Wrote instructions reference to {}",
+        settings_path.display()
+    );
 
     println!("\n  VSCode integration installed.");
     Ok(())
@@ -794,9 +797,9 @@ fn write_vscode_settings_hook(path: &Path) -> Result<()> {
         .as_array_mut()
         .context("github.copilot.chat.codeGeneration.instructions is not an array")?;
 
-    let already = arr.iter().any(|v| {
-        v.get("file").and_then(|f| f.as_str()) == Some(VSCODE_INSTRUCTIONS_FILE)
-    });
+    let already = arr
+        .iter()
+        .any(|v| v.get("file").and_then(|f| f.as_str()) == Some(VSCODE_INSTRUCTIONS_FILE));
     if !already {
         arr.push(entry);
     }
@@ -816,8 +819,7 @@ fn remove_vscode_settings_hook(path: &Path) -> Result<()> {
     let mut settings: serde_json::Value =
         serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}));
 
-    if let Some(instructions) =
-        settings.get_mut("github.copilot.chat.codeGeneration.instructions")
+    if let Some(instructions) = settings.get_mut("github.copilot.chat.codeGeneration.instructions")
     {
         if let Some(arr) = instructions.as_array_mut() {
             arr.retain(|v| {

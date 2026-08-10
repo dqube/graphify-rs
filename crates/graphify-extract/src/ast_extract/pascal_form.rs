@@ -51,9 +51,17 @@ static RE_EVENT: LazyLock<Regex> =
 /// was seen at so we can order objects, ends, and events into one stream.
 #[derive(Debug)]
 enum Token<'a> {
-    Object { name: &'a str, kind: &'a str, line: usize },
+    Object {
+        name: &'a str,
+        kind: &'a str,
+        line: usize,
+    },
     End,
-    Event { property: &'a str, handler: &'a str, line: usize },
+    Event {
+        property: &'a str,
+        handler: &'a str,
+        line: usize,
+    },
 }
 
 fn line_of(source: &str, offset: usize) -> usize {
@@ -125,7 +133,11 @@ pub(crate) fn extract_pascal_form(path: &Path, source: &str) -> ExtractionResult
             Token::End => {
                 stack.pop();
             }
-            Token::Event { property, handler, line } => {
+            Token::Event {
+                property,
+                handler,
+                line,
+            } => {
                 let Some(owner) = stack.last().cloned() else {
                     continue;
                 };
@@ -166,9 +178,27 @@ mod tests {
             );
         }
         // Button1 → Panel1 → Form1 nesting via contains edges.
-        let form_id = r.nodes.iter().find(|n| n.label == "Form1").unwrap().id.clone();
-        let panel_id = r.nodes.iter().find(|n| n.label == "Panel1").unwrap().id.clone();
-        let button_id = r.nodes.iter().find(|n| n.label == "Button1").unwrap().id.clone();
+        let form_id = r
+            .nodes
+            .iter()
+            .find(|n| n.label == "Form1")
+            .unwrap()
+            .id
+            .clone();
+        let panel_id = r
+            .nodes
+            .iter()
+            .find(|n| n.label == "Panel1")
+            .unwrap()
+            .id
+            .clone();
+        let button_id = r
+            .nodes
+            .iter()
+            .find(|n| n.label == "Button1")
+            .unwrap()
+            .id
+            .clone();
         assert!(
             r.edges
                 .iter()
@@ -183,12 +213,11 @@ mod tests {
         );
         // OnClick binds Button1 to Button1Click.
         assert!(
-            r.edges
-                .iter()
-                .any(|e| e.relation == "binds" && e.source == button_id
-                    && r.nodes
-                        .iter()
-                        .any(|n| n.id == e.target && n.label == "Button1Click")),
+            r.edges.iter().any(|e| e.relation == "binds"
+                && e.source == button_id
+                && r.nodes
+                    .iter()
+                    .any(|n| n.id == e.target && n.label == "Button1Click")),
             "expected Button1 --binds--> Button1Click"
         );
     }

@@ -8,12 +8,10 @@ use graphify_core::confidence::Confidence;
 use graphify_core::model::{ExtractionResult, NodeType};
 use regex::Regex;
 
-static RE_RESOURCE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?m)^\s*resource\s+"([^"]+)"\s+"([^"]+)""#).unwrap()
-});
-static RE_DATA: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?m)^\s*data\s+"([^"]+)"\s+"([^"]+)""#).unwrap()
-});
+static RE_RESOURCE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?m)^\s*resource\s+"([^"]+)"\s+"([^"]+)""#).unwrap());
+static RE_DATA: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?m)^\s*data\s+"([^"]+)"\s+"([^"]+)""#).unwrap());
 static RE_MODULE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"(?m)^\s*module\s+"([^"]+)""#).unwrap());
 static RE_VARIABLE: LazyLock<Regex> =
@@ -51,16 +49,36 @@ pub(crate) fn extract_hcl(path: &Path, source: &str) -> ExtractionResult {
         push(&name, line_of(source, &cap), NodeType::Struct, &mut result);
     }
     for cap in RE_MODULE.captures_iter(source) {
-        push(&cap[1], line_of(source, &cap), NodeType::Module, &mut result);
+        push(
+            &cap[1],
+            line_of(source, &cap),
+            NodeType::Module,
+            &mut result,
+        );
     }
     for cap in RE_VARIABLE.captures_iter(source) {
-        push(&cap[1], line_of(source, &cap), NodeType::Variable, &mut result);
+        push(
+            &cap[1],
+            line_of(source, &cap),
+            NodeType::Variable,
+            &mut result,
+        );
     }
     for cap in RE_OUTPUT.captures_iter(source) {
-        push(&cap[1], line_of(source, &cap), NodeType::Constant, &mut result);
+        push(
+            &cap[1],
+            line_of(source, &cap),
+            NodeType::Constant,
+            &mut result,
+        );
     }
     for cap in RE_PROVIDER.captures_iter(source) {
-        push(&cap[1], line_of(source, &cap), NodeType::Package, &mut result);
+        push(
+            &cap[1],
+            line_of(source, &cap),
+            NodeType::Package,
+            &mut result,
+        );
     }
 
     result

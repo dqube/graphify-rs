@@ -29,9 +29,9 @@ pub(crate) fn extract_shell(path: &Path, source: &str) -> ExtractionResult {
 
     let mut functions: Vec<(String, String, usize, usize)> = Vec::new();
     let push_func = |cap: &regex::Captures<'_>,
-                         funcs: &mut Vec<(String, String, usize, usize)>,
-                         result: &mut ExtractionResult,
-                         next_start: Option<usize>| {
+                     funcs: &mut Vec<(String, String, usize, usize)>,
+                     result: &mut ExtractionResult,
+                     next_start: Option<usize>| {
         let name = cap[1].to_string();
         if matches!(name.as_str(), "if" | "while" | "for" | "until" | "case") {
             return;
@@ -87,7 +87,9 @@ pub(crate) fn extract_shell(path: &Path, source: &str) -> ExtractionResult {
         ));
     }
 
-    result.edges.extend(infer_shell_calls(&functions, &lines, path));
+    result
+        .edges
+        .extend(infer_shell_calls(&functions, &lines, path));
     result
 }
 

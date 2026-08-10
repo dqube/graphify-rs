@@ -43,7 +43,11 @@ fn load_toml(path: &Path) -> Option<toml::Value> {
 /// Manifest paths for the root package (if any) plus every workspace member.
 fn member_manifest_paths(root: &Path, root_data: &toml::Value) -> Vec<PathBuf> {
     let mut paths: Vec<PathBuf> = Vec::new();
-    if root_data.get("package").and_then(|v| v.as_table()).is_some() {
+    if root_data
+        .get("package")
+        .and_then(|v| v.as_table())
+        .is_some()
+    {
         paths.push(root.join("Cargo.toml"));
     }
 
@@ -161,7 +165,10 @@ pub fn introspect_cargo(root: &Path) -> ExtractionResult {
     let root_manifest = root_path.join("Cargo.toml");
 
     let Some(root_data) = load_toml(&root_manifest) else {
-        debug!("cargo introspection: no readable {}", root_manifest.display());
+        debug!(
+            "cargo introspection: no readable {}",
+            root_manifest.display()
+        );
         return result;
     };
 

@@ -27,8 +27,7 @@ pub const GOOGLE_WORKSPACE_EXTENSIONS: &[&str] = &[".gdoc", ".gsheet", ".gslides
 /// How long a single export may take before it is killed.
 const DEFAULT_TIMEOUT_SECS: u64 = 120;
 
-static RE_URL_ID_PARAM: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[?&]id=([^&#]+)").unwrap());
+static RE_URL_ID_PARAM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[?&]id=([^&#]+)").unwrap());
 static RE_URL_PATH_ID: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"/(?:document|spreadsheets|presentation|file)/d/([^/?#]+)").unwrap()
 });
@@ -110,11 +109,8 @@ fn parse_shortcut(text: &str) -> Result<Shortcut, String> {
         .find_map(|k| data.get(*k).and_then(Value::as_str))
         .map(str::to_string)
         .or_else(|| {
-            url.as_deref().and_then(|u| {
-                RE_URL_RESOURCE_KEY
-                    .captures(u)
-                    .map(|c| c[1].to_string())
-            })
+            url.as_deref()
+                .and_then(|u| RE_URL_RESOURCE_KEY.captures(u).map(|c| c[1].to_string()))
         });
 
     Ok(Shortcut {
@@ -330,9 +326,9 @@ pub fn find_shortcuts(root: &Path) -> Vec<PathBuf> {
         .filter_entry(|e| {
             !e.file_type().is_dir()
                 || e.path() == root
-                || e.file_name()
-                    .to_str()
-                    .is_some_and(|n| !n.starts_with('.') && !crate::constants::SKIP_DIRS.contains(&n))
+                || e.file_name().to_str().is_some_and(|n| {
+                    !n.starts_with('.') && !crate::constants::SKIP_DIRS.contains(&n)
+                })
         })
         .flatten()
         .filter(|e| e.file_type().is_file() && is_google_workspace_path(e.path()))

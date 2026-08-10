@@ -127,11 +127,7 @@ impl EmitCtx<'_> {
         if source.is_empty() || target.is_empty() || source == target {
             return;
         }
-        let key = (
-            source.to_string(),
-            target.to_string(),
-            relation.to_string(),
-        );
+        let key = (source.to_string(), target.to_string(), relation.to_string());
         if !self.seen_edges.insert(key) {
             return;
         }
@@ -283,7 +279,9 @@ mod tests {
 
     #[test]
     fn python_style_package_detected_from_bare_arg() {
-        let r = extract(r#"{"mcpServers": {"t": {"command": "uvx", "args": ["mcp-server-time", "--local-timezone=UTC"]}}}"#);
+        let r = extract(
+            r#"{"mcpServers": {"t": {"command": "uvx", "args": ["mcp-server-time", "--local-timezone=UTC"]}}}"#,
+        );
         assert!(r.nodes.iter().any(|n| n.label == "mcp-server-time"));
         assert!(!r.nodes.iter().any(|n| n.label.starts_with("--")));
     }

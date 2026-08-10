@@ -34,9 +34,8 @@ impl Parser for RegexParser {
     fn supported_extensions(&self) -> &[&str] {
         // Derived from the DISPATCH table so new languages are picked up
         // automatically.
-        static EXTS: std::sync::LazyLock<Vec<&'static str>> = std::sync::LazyLock::new(|| {
-            crate::DISPATCH.iter().map(|(ext, _)| *ext).collect()
-        });
+        static EXTS: std::sync::LazyLock<Vec<&'static str>> =
+            std::sync::LazyLock::new(|| crate::DISPATCH.iter().map(|(ext, _)| *ext).collect());
         &EXTS
     }
 }

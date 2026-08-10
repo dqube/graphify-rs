@@ -366,7 +366,9 @@ fn entry_words_and_hash(
     }
     // New file, size changed, or meta unavailable → compute fresh.
     match file_type {
-        FileType::Image | FileType::Media => (0, graphify_cache::file_hash(path).unwrap_or_default()),
+        FileType::Image | FileType::Media => {
+            (0, graphify_cache::file_hash(path).unwrap_or_default())
+        }
         _ => match read_indexable_text(path) {
             Some(content) => {
                 let h = graphify_cache::content_hash(content.as_bytes());

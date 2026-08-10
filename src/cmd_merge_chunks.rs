@@ -441,11 +441,7 @@ mod tests {
         );
         let out = tmp.path().join("merged.json");
 
-        cmd_merge_chunks(
-            &[a.to_string_lossy().into_owned()],
-            &out.to_string_lossy(),
-        )
-        .unwrap();
+        cmd_merge_chunks(&[a.to_string_lossy().into_owned()], &out.to_string_lossy()).unwrap();
 
         assert_eq!(read_out(&out)["nodes"][0]["provenance"]["model"], "opus");
     }
@@ -579,11 +575,7 @@ mod tests {
         );
         let out = tmp.path().join("merged.json");
 
-        cmd_merge_chunks(
-            &[a.to_string_lossy().into_owned()],
-            &out.to_string_lossy(),
-        )
-        .unwrap();
+        cmd_merge_chunks(&[a.to_string_lossy().into_owned()], &out.to_string_lossy()).unwrap();
 
         assert_eq!(count_of(&read_out(&out), "nodes"), 1);
     }
@@ -598,11 +590,7 @@ mod tests {
         );
         let out = tmp.path().join("merged.json");
 
-        cmd_merge_chunks(
-            &[a.to_string_lossy().into_owned()],
-            &out.to_string_lossy(),
-        )
-        .unwrap();
+        cmd_merge_chunks(&[a.to_string_lossy().into_owned()], &out.to_string_lossy()).unwrap();
 
         let merged = read_out(&out);
         assert_eq!(count_of(&merged, "nodes"), 0);
@@ -615,11 +603,7 @@ mod tests {
         let a = write(tmp.path(), "a.json", &chunk("alpha", 1));
         let out = tmp.path().join("deep/nested/merged.json");
 
-        cmd_merge_chunks(
-            &[a.to_string_lossy().into_owned()],
-            &out.to_string_lossy(),
-        )
-        .unwrap();
+        cmd_merge_chunks(&[a.to_string_lossy().into_owned()], &out.to_string_lossy()).unwrap();
 
         assert!(out.is_file());
     }
@@ -647,7 +631,11 @@ mod tests {
     #[test]
     fn an_unmatched_pattern_stays_literal() {
         let tmp = tempfile::tempdir().unwrap();
-        let pattern = tmp.path().join("none_*.json").to_string_lossy().into_owned();
+        let pattern = tmp
+            .path()
+            .join("none_*.json")
+            .to_string_lossy()
+            .into_owned();
         assert_eq!(
             expand_patterns(std::slice::from_ref(&pattern)),
             [PathBuf::from(&pattern)]
@@ -675,7 +663,10 @@ mod tests {
 
         // A leading dot is only matched by an explicit dot.
         assert!(!matches_pattern("*.json", ".hidden.json"));
-        assert!(matches_pattern(".graphify_chunk_*.json", ".graphify_chunk_1.json"));
+        assert!(matches_pattern(
+            ".graphify_chunk_*.json",
+            ".graphify_chunk_1.json"
+        ));
     }
 
     #[test]

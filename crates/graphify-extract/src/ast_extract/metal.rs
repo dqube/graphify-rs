@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::LazyLock;
 
 use super::{
-    RE_C_FUNC, RE_C_INCLUDE, RE_CPP_CLASS, RE_C_STRUCT, end_line_at, infer_calls, line_of,
+    RE_C_FUNC, RE_C_INCLUDE, RE_C_STRUCT, RE_CPP_CLASS, end_line_at, infer_calls, line_of,
     make_edge, make_file_node, make_node, path_str,
 };
 use graphify_core::confidence::Confidence;
@@ -14,8 +14,7 @@ use graphify_core::model::{ExtractionResult, GraphNode, NodeType};
 use regex::Regex;
 
 static RE_SHADER: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?m)^\s*(?:kernel|vertex|fragment)\s+[\w:<>\s*&]+?(\w+)\s*\([^;]*\)\s*\{")
-        .unwrap()
+    Regex::new(r"(?m)^\s*(?:kernel|vertex|fragment)\s+[\w:<>\s*&]+?(\w+)\s*\([^;]*\)\s*\{").unwrap()
 });
 
 pub(crate) fn extract_metal(path: &Path, source: &str) -> ExtractionResult {

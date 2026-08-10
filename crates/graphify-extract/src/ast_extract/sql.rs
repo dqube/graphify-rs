@@ -15,10 +15,8 @@ static RE_TABLE: LazyLock<Regex> = LazyLock::new(|| {
     .unwrap()
 });
 static RE_VIEW: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r#"(?im)^\s*create\s+(?:or\s+replace\s+)?(?:materialized\s+)?view\s+([\w."`\[\]]+)"#,
-    )
-    .unwrap()
+    Regex::new(r#"(?im)^\s*create\s+(?:or\s+replace\s+)?(?:materialized\s+)?view\s+([\w."`\[\]]+)"#)
+        .unwrap()
 });
 static RE_ROUTINE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(

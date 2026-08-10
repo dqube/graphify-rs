@@ -43,9 +43,8 @@ impl Neo4jConfig {
     /// `NEO4J_USER`, `NEO4J_PASSWORD`, `NEO4J_DATABASE`). Config values win.
     /// Returns `None` when user or password is missing from both sources.
     pub fn resolve(&self) -> Option<graphify_export::Neo4jConnection> {
-        let pick = |cfg: &Option<String>, env: &str| {
-            cfg.clone().or_else(|| std::env::var(env).ok())
-        };
+        let pick =
+            |cfg: &Option<String>, env: &str| cfg.clone().or_else(|| std::env::var(env).ok());
         let user = pick(&self.user, "NEO4J_USER")?;
         let password = pick(&self.password, "NEO4J_PASSWORD")?;
         Some(graphify_export::Neo4jConnection {

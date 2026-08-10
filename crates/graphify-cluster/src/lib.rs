@@ -965,7 +965,11 @@ mod tests {
         let mut ids: Vec<usize> = out.keys().copied().collect();
         ids.sort_unstable();
         assert_eq!(ids, [0, 1]);
-        assert_eq!(cid_of(&out, "a"), 0, "largest community takes the lowest id");
+        assert_eq!(
+            cid_of(&out, "a"),
+            0,
+            "largest community takes the lowest id"
+        );
     }
 
     #[test]

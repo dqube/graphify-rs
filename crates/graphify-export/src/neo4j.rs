@@ -174,9 +174,13 @@ pub async fn push_to_neo4j(graph: &KnowledgeGraph, conn: &Neo4jConnection) -> Re
     // Best effort: the id constraint keeps MERGE fast and safe on Neo4j 5+.
     // Older versions without `IF NOT EXISTS` support will reject it — the push
     // itself still works, just without the uniqueness guarantee.
-    if commit(&client, conn, vec![json!({"statement": CONSTRAINT_STATEMENT})])
-        .await
-        .is_err()
+    if commit(
+        &client,
+        conn,
+        vec![json!({"statement": CONSTRAINT_STATEMENT})],
+    )
+    .await
+    .is_err()
     {
         tracing::debug!("Neo4j constraint creation skipped (unsupported)");
     }
@@ -260,7 +264,10 @@ mod tests {
 
     #[test]
     fn normalize_uri_maps_bolt_to_http() {
-        assert_eq!(normalize_uri("bolt://localhost:7687"), "http://localhost:7474");
+        assert_eq!(
+            normalize_uri("bolt://localhost:7687"),
+            "http://localhost:7474"
+        );
         assert_eq!(normalize_uri("neo4j://db:7687/"), "http://db:7474");
         assert_eq!(normalize_uri("bolt://db:9999"), "http://db:9999");
     }

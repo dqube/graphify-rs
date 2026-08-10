@@ -452,8 +452,15 @@ mod tests {
     fn same_second_saves_do_not_overwrite_each_other() {
         let tmp = tempfile::tempdir().unwrap();
         let save = |q: &str| {
-            save_query_result(q, "answer", tmp.path(), "query", None, ResultOutcome::default())
-                .unwrap()
+            save_query_result(
+                q,
+                "answer",
+                tmp.path(),
+                "query",
+                None,
+                ResultOutcome::default(),
+            )
+            .unwrap()
         };
         let first = save("first question");
         let second = save("second question");

@@ -247,8 +247,7 @@ fn write_single_file(
         || requested.ends_with('/')
         || dest.extension().is_none_or(|e| e.eq_ignore_ascii_case(""));
     if is_dir_target {
-        std::fs::create_dir_all(&dest)
-            .with_context(|| format!("creating {}", dest.display()))?;
+        std::fs::create_dir_all(&dest).with_context(|| format!("creating {}", dest.display()))?;
         return render(&dest);
     }
 
@@ -256,16 +255,14 @@ fn write_single_file(
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
-    std::fs::create_dir_all(&parent)
-        .with_context(|| format!("creating {}", parent.display()))?;
+    std::fs::create_dir_all(&parent).with_context(|| format!("creating {}", parent.display()))?;
 
     if dest.file_name().is_some_and(|n| n == default_name) {
         return render(&parent);
     }
 
     let scratch = parent.join(format!(".graphify_export_{}", std::process::id()));
-    std::fs::create_dir_all(&scratch)
-        .with_context(|| format!("creating {}", scratch.display()))?;
+    std::fs::create_dir_all(&scratch).with_context(|| format!("creating {}", scratch.display()))?;
     let result = render(&scratch).and_then(|produced| {
         std::fs::rename(&produced, &dest)
             .with_context(|| format!("moving {} to {}", produced.display(), dest.display()))?;
@@ -355,7 +352,12 @@ fn warn_about_inapplicable_flags(args: &ExportArgs) {
         (args.label.is_some(), "--label"),
     ];
     if format != "callflow-html" {
-        ignored.extend(callflow_only.iter().filter(|(set, _)| *set).map(|(_, n)| *n));
+        ignored.extend(
+            callflow_only
+                .iter()
+                .filter(|(set, _)| *set)
+                .map(|(_, n)| *n),
+        );
     }
     if args.push.is_some() && format != "neo4j" {
         ignored.push("--push");
@@ -394,7 +396,8 @@ fn load_graph(path: &Path) -> Result<(KnowledgeGraph, Option<String>)> {
             path.display()
         );
     }
-    let raw = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let raw =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let value: serde_json::Value =
         serde_json::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
     let commit = value

@@ -90,7 +90,14 @@ mod tests {
 
         let content: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        for k in ["directed", "multigraph", "graph", "nodes", "links", "hyperedges"] {
+        for k in [
+            "directed",
+            "multigraph",
+            "graph",
+            "nodes",
+            "links",
+            "hyperedges",
+        ] {
             assert!(content.get(k).is_some(), "missing top-level key {k}");
         }
         // Relation was translated to python vocabulary.

@@ -177,8 +177,7 @@ pub async fn cmd_build(
     // assignments as a same-topic tiebreaker. Skipped when no LLM tiebreaker
     // is configured AND the corpus is tiny (the extra pass is not worth the
     // overhead on a handful of nodes).
-    let (graph, communities) =
-        step_dedup_near(graph, communities, dedup_llm.as_deref(), verb)?;
+    let (graph, communities) = step_dedup_near(graph, communities, dedup_llm.as_deref(), verb)?;
 
     step_analyze_and_export(
         &graph,
@@ -221,10 +220,8 @@ fn step_dedup_near(
     graphify_core::graph::KnowledgeGraph,
     HashMap<usize, Vec<String>>,
 )> {
-    let nodes: Vec<graphify_core::model::GraphNode> =
-        graph.nodes().into_iter().cloned().collect();
-    let edges: Vec<graphify_core::model::GraphEdge> =
-        graph.edges().into_iter().cloned().collect();
+    let nodes: Vec<graphify_core::model::GraphNode> = graph.nodes().into_iter().cloned().collect();
+    let edges: Vec<graphify_core::model::GraphEdge> = graph.edges().into_iter().cloned().collect();
     let hyperedges = graph.hyperedges.clone();
     // Flatten communities to id -> community_id for the dedup pass.
     let mut node_to_community: HashMap<String, usize> = HashMap::new();
@@ -249,7 +246,10 @@ fn step_dedup_near(
         stats.exact_merges,
         stats.fuzzy_merges,
         if stats.ambiguous_pairs > 0 {
-            format!(" · {} ambiguous pair(s) for LLM tiebreak", stats.ambiguous_pairs)
+            format!(
+                " · {} ambiguous pair(s) for LLM tiebreak",
+                stats.ambiguous_pairs
+            )
         } else {
             String::new()
         }
@@ -1444,8 +1444,7 @@ fn step_export(
     if should_export("callflow-html") {
         let options = graphify_export::CallflowOptions {
             project_name: project_display_name(root),
-            built_at_commit: graphify_export::git_short_commit(Path::new(root))
-                .unwrap_or_default(),
+            built_at_commit: graphify_export::git_short_commit(Path::new(root)).unwrap_or_default(),
             ..Default::default()
         };
         let callflow_path =

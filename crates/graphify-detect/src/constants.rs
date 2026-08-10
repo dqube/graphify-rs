@@ -6,10 +6,10 @@ pub const CODE_EXTENSIONS: &[&str] = &[
     ".c", ".h", ".hpp", ".rb", ".swift", ".kt", ".kts", ".cs", ".scala", ".php", ".lua", ".toc",
     ".zig", ".ps1", ".ex", ".exs", ".m", ".mm", ".jl", ".dart",
     // Phase 2 language expansion
-    ".cu", ".cuh", ".metal", ".svelte", ".astro", ".groovy", ".gradle", ".v", ".sv", ".svh",
-    ".sql", ".f", ".f90", ".f95", ".f03", ".f08", ".pas", ".pp", ".dpr", ".dpk", ".lpr",
-    ".cls", ".trigger", ".tf", ".tfvars", ".hcl", ".sh", ".bash", ".json", ".sln", ".csproj",
-    ".fsproj", ".vbproj", ".xaml", ".razor", ".cshtml", ".dm", ".dme", ".dmm",
+    ".cu", ".cuh", ".metal", ".svelte", ".astro", ".groovy", ".gradle", ".v", ".sv", ".svh", ".sql",
+    ".f", ".f90", ".f95", ".f03", ".f08", ".pas", ".pp", ".dpr", ".dpk", ".lpr", ".cls",
+    ".trigger", ".tf", ".tfvars", ".hcl", ".sh", ".bash", ".json", ".sln", ".csproj", ".fsproj",
+    ".vbproj", ".xaml", ".razor", ".cshtml", ".dm", ".dme", ".dmm",
     // Phase 3 variants: JS/TS module flavours, Luau, PowerShell modules/data,
     // Pascal include + Delphi Forms, XML-based Solution file.
     ".mts", ".cts", ".mjs", ".luau", ".psm1", ".psd1", ".inc", ".dfm", ".lfm", ".slnx",

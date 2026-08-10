@@ -876,7 +876,11 @@ fn section_keywords(nodes: &[&GraphNode], limit: usize) -> Vec<String> {
         .copied()
         .filter(|n| !label_is_testish(&n.label) && !file_is_testish(&n.source_file))
         .collect();
-    let nodes: &[&GraphNode] = if non_test.is_empty() { nodes } else { &non_test };
+    let nodes: &[&GraphNode] = if non_test.is_empty() {
+        nodes
+    } else {
+        &non_test
+    };
     // First-seen order breaks count ties, matching Counter.most_common.
     let mut counts: HashMap<String, usize> = HashMap::new();
     let mut order: Vec<String> = Vec::new();
@@ -2916,7 +2920,8 @@ mod tests {
         ] {
             kg.add_node(n).unwrap();
         }
-        kg.add_edge(edge("id::strips", "id::make_id", "calls")).unwrap();
+        kg.add_edge(edge("id::strips", "id::make_id", "calls"))
+            .unwrap();
 
         let labels = HashMap::from([(0, "strips_dots_and_underscores()".to_string())]);
         let nodes = kg.nodes();
@@ -2953,7 +2958,9 @@ mod tests {
         let refs: Vec<&GraphNode> = test_nodes.iter().collect();
         let words = section_keywords(&refs, 3);
         assert!(
-            words.iter().all(|w| !w.contains("test") && !w.contains("roundtrip")),
+            words
+                .iter()
+                .all(|w| !w.contains("test") && !w.contains("roundtrip")),
             "test vocabulary leaked into keywords: {words:?}"
         );
         assert!(words.iter().any(|w| w == "serialize"), "got {words:?}");

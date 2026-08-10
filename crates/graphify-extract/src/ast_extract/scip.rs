@@ -353,11 +353,9 @@ mod tests {
 
     #[test]
     fn label_falls_back_to_the_symbol_suffix() {
-        let r = run(
-            r#"{"documents": [{"relative_path": "a.py", "symbols": [
+        let r = run(r#"{"documents": [{"relative_path": "a.py", "symbols": [
                 {"symbol": "scip-python pkg a/helper().", "kind": "function"}
-            ]}]}"#,
-        );
+            ]}]}"#);
         assert_eq!(labels(&r), vec!["scip-python pkg a/helper()."]);
     }
 
@@ -382,54 +380,46 @@ mod tests {
     fn a_string_false_does_not_set_a_flag() {
         // External JSON routinely carries "false" as a string; treating it as
         // truthy would mislabel a plain reference as an implementation.
-        let r = run(
-            r#"{"documents": [{"relative_path": "a.py", "symbols": [
+        let r = run(r#"{"documents": [{"relative_path": "a.py", "symbols": [
                 {"symbol": "A#", "relationships": [{"symbol": "B#", "is_implementation": "false"}]}
-            ]}]}"#,
-        );
+            ]}]}"#);
         assert_eq!(r.edges[0].relation, "scip_ref");
     }
 
     #[test]
     fn same_document_target_wins_over_another_document() {
-        let r = run(
-            r#"{"documents": [
+        let r = run(r#"{"documents": [
                 {"relative_path": "a.py", "symbols": [
                     {"symbol": "Dup#"},
                     {"symbol": "User#", "relationships": [{"symbol": "Dup#"}]}
                 ]},
                 {"relative_path": "b.py", "symbols": [{"symbol": "Dup#"}]}
-            ]}"#,
-        );
+            ]}"#);
         let edge = r.edges.iter().find(|e| e.relation == "scip_ref").unwrap();
         assert_eq!(edge.target, scip_node_id("Dup#", "a.py"));
     }
 
     #[test]
     fn unique_cross_document_target_resolves() {
-        let r = run(
-            r#"{"documents": [
+        let r = run(r#"{"documents": [
                 {"relative_path": "a.py", "symbols": [
                     {"symbol": "User#", "relationships": [{"symbol": "Other#"}]}
                 ]},
                 {"relative_path": "b.py", "symbols": [{"symbol": "Other#"}]}
-            ]}"#,
-        );
+            ]}"#);
         let edge = r.edges.iter().find(|e| e.relation == "scip_ref").unwrap();
         assert_eq!(edge.target, scip_node_id("Other#", "b.py"));
     }
 
     #[test]
     fn ambiguous_target_gets_a_stub_instead_of_a_guess() {
-        let r = run(
-            r#"{"documents": [
+        let r = run(r#"{"documents": [
                 {"relative_path": "a.py", "symbols": [{"symbol": "Amb#"}]},
                 {"relative_path": "b.py", "symbols": [{"symbol": "Amb#"}]},
                 {"relative_path": "c.py", "symbols": [
                     {"symbol": "User#", "relationships": [{"symbol": "Amb#"}]}
                 ]}
-            ]}"#,
-        );
+            ]}"#);
         let edge = r.edges.iter().find(|e| e.relation == "scip_ref").unwrap();
         // Scoped to the referencing document, not either declaration.
         assert_eq!(edge.target, scip_node_id("Amb#", "c.py"));
@@ -439,13 +429,11 @@ mod tests {
 
     #[test]
     fn every_edge_endpoint_exists_as_a_node() {
-        let r = run(
-            r#"{"documents": [{"relative_path": "a.py", "symbols": [
+        let r = run(r#"{"documents": [{"relative_path": "a.py", "symbols": [
                 {"symbol": "A#", "relationships": [
                     {"symbol": "Nowhere#"}, {"symbol": "AlsoMissing#", "is_definition": true}
                 ]}
-            ]}]}"#,
-        );
+            ]}]}"#);
         let ids: HashSet<&str> = r.nodes.iter().map(|n| n.id.as_str()).collect();
         assert!(!r.edges.is_empty());
         for e in &r.edges {
@@ -456,21 +444,17 @@ mod tests {
 
     #[test]
     fn duplicate_relationships_collapse() {
-        let r = run(
-            r#"{"documents": [{"relative_path": "a.py", "symbols": [
+        let r = run(r#"{"documents": [{"relative_path": "a.py", "symbols": [
                 {"symbol": "A#", "relationships": [{"symbol": "B#"}, {"symbol": "B#"}]}
-            ]}]}"#,
-        );
+            ]}]}"#);
         assert_eq!(r.edges.len(), 1);
     }
 
     #[test]
     fn malformed_range_cannot_become_a_line_number() {
-        let r = run(
-            r#"{"documents": [{"relative_path": "a.py", "symbols": [
+        let r = run(r#"{"documents": [{"relative_path": "a.py", "symbols": [
                 {"symbol": "A#", "occurrences": [{"range": [true, 0]}]}
-            ]}]}"#,
-        );
+            ]}]}"#);
         assert_eq!(r.nodes[0].source_location, None);
     }
 
@@ -485,12 +469,10 @@ mod tests {
 
     #[test]
     fn non_object_entries_are_skipped_without_aborting() {
-        let r = run(
-            r#"{"documents": [
+        let r = run(r#"{"documents": [
                 "garbage",
                 {"relative_path": "a.py", "symbols": ["junk", {"symbol": ""}, {"symbol": "Good#"}]}
-            ]}"#,
-        );
+            ]}"#);
         assert_eq!(labels(&r), vec!["Good#"]);
     }
 }

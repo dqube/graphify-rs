@@ -10,9 +10,8 @@ use graphify_core::id::make_id;
 use graphify_core::model::{ExtractionResult, GraphNode, NodeType};
 use regex::Regex;
 
-static RE_MODULE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?im)^\s*module\s+(\w+)\s*$").unwrap()
-});
+static RE_MODULE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?im)^\s*module\s+(\w+)\s*$").unwrap());
 static RE_PROGRAM: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?im)^\s*program\s+(\w+)").unwrap());
 static RE_SUBROUTINE: LazyLock<Regex> = LazyLock::new(|| {

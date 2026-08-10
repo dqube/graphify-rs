@@ -25,9 +25,8 @@ static RE_CLASS: LazyLock<Regex> = LazyLock::new(|| {
     )
     .unwrap()
 });
-static RE_TRIGGER: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?m)^\s*trigger\s+(\w+)\s+on\s+(\w+)\s*\(").unwrap()
-});
+static RE_TRIGGER: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?m)^\s*trigger\s+(\w+)\s+on\s+(\w+)\s*\(").unwrap());
 static RE_METHOD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?m)^\s+(?:public\s+|private\s+|protected\s+|global\s+)?(?:static\s+)?(?:virtual\s+)?(?:override\s+)?(?:webservice\s+)?(?:\w+(?:<[^>]*>)?(?:\[\])?)\s+(\w+)\s*\([^;]*?\)\s*\{",
@@ -36,9 +35,8 @@ static RE_METHOD: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// `[SELECT … FROM ObjectName …]` — inline SOQL literal.
-static RE_SOQL_INLINE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?is)\[\s*SELECT\b[^\]]*?\bFROM\s+(\w+)").unwrap()
-});
+static RE_SOQL_INLINE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?is)\[\s*SELECT\b[^\]]*?\bFROM\s+(\w+)").unwrap());
 /// `Database.query('SELECT … FROM ObjectName …')` (also `getQueryLocator`,
 /// `countQuery`). Only the object in the outermost `FROM` clause is captured.
 static RE_SOQL_DYNAMIC: LazyLock<Regex> = LazyLock::new(|| {
@@ -49,10 +47,7 @@ static RE_SOQL_DYNAMIC: LazyLock<Regex> = LazyLock::new(|| {
 });
 /// `insert new Foo(…)` and friends — inline DML on a fresh sObject literal.
 static RE_DML_INLINE_NEW: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?im)^\s*(insert|update|upsert|delete|undelete|merge)\s+new\s+(\w+)\s*\(",
-    )
-    .unwrap()
+    Regex::new(r"(?im)^\s*(insert|update|upsert|delete|undelete|merge)\s+new\s+(\w+)\s*\(").unwrap()
 });
 /// `Database.insert(new Foo(…))` and friends.
 static RE_DML_DATABASE_NEW: LazyLock<Regex> = LazyLock::new(|| {

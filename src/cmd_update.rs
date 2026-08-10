@@ -28,7 +28,10 @@ pub const ROOT_MARKER: &str = ".graphify_root";
 pub fn record_root(output_dir: &Path, root: &Path) {
     let canonical = root.canonicalize();
     let value = canonical.as_deref().unwrap_or(root);
-    let _ = std::fs::write(output_dir.join(ROOT_MARKER), value.to_string_lossy().as_ref());
+    let _ = std::fs::write(
+        output_dir.join(ROOT_MARKER),
+        value.to_string_lossy().as_ref(),
+    );
 }
 
 /// Read the scan root recorded by the last build, if it still exists.
@@ -92,7 +95,11 @@ pub fn cmd_update(
     .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     if outcome.nodes == 0 {
-        println!("\n  {} no code files found under {}", "!".yellow(), root.display());
+        println!(
+            "\n  {} no code files found under {}",
+            "!".yellow(),
+            root.display()
+        );
         println!();
         return Ok(());
     }
@@ -192,10 +199,7 @@ mod tests {
         let target = tmp.path().join("project");
         std::fs::create_dir_all(&target).unwrap();
         record_root(&out, &target);
-        assert_eq!(
-            recorded_root(&out).unwrap(),
-            target.canonicalize().unwrap()
-        );
+        assert_eq!(recorded_root(&out).unwrap(), target.canonicalize().unwrap());
 
         // A root that no longer exists must not be handed back.
         std::fs::remove_dir_all(&target).unwrap();
@@ -234,7 +238,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let missing = tmp.path().join("nope");
         let err = cmd_update(Some(&missing.to_string_lossy()), None, false, false).unwrap_err();
-        assert!(format!("{err:#}").contains("path not found"), "got: {err:#}");
+        assert!(
+            format!("{err:#}").contains("path not found"),
+            "got: {err:#}"
+        );
     }
 
     #[test]
@@ -242,7 +249,10 @@ mod tests {
         let tmp = project(&[("a.rs", "pub fn a() {}\n")]);
         let file = tmp.path().join("a.rs");
         let err = cmd_update(Some(&file.to_string_lossy()), None, false, false).unwrap_err();
-        assert!(format!("{err:#}").contains("not a directory"), "got: {err:#}");
+        assert!(
+            format!("{err:#}").contains("not a directory"),
+            "got: {err:#}"
+        );
     }
 
     #[test]

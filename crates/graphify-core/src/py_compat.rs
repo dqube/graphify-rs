@@ -128,7 +128,10 @@ pub fn python_node(
     // Pass through extra entries that don't conflict with the fields above.
     // `file_type` already handled; skip `node_type` if it leaked into extra.
     for (k, v) in &node.extra {
-        if !matches!(k.as_str(), "file_type" | "node_type" | "_origin" | "norm_label") {
+        if !matches!(
+            k.as_str(),
+            "file_type" | "node_type" | "_origin" | "norm_label"
+        ) {
             obj.entry(k.clone()).or_insert(v.clone());
         }
     }
@@ -151,7 +154,8 @@ pub fn python_edge(edge: &GraphEdge) -> Value {
     );
     obj.insert(
         "confidence".into(),
-        serde_json::to_value(&edge.confidence).unwrap_or_else(|_| Value::String("EXTRACTED".into())),
+        serde_json::to_value(&edge.confidence)
+            .unwrap_or_else(|_| Value::String("EXTRACTED".into())),
     );
     obj.insert("confidence_score".into(), json!(edge.confidence_score));
     obj.insert(
@@ -200,7 +204,11 @@ fn git_head() -> Option<String> {
     }
     let s = String::from_utf8(out.stdout).ok()?;
     let trimmed = s.trim();
-    if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
 }
 
 /// Write a full graph in Python-compat JSON to `writer`.
@@ -229,7 +237,10 @@ pub fn write_python_compat_json<W: Write>(
     map.serialize_entry("multigraph", &false)?;
     map.serialize_entry("graph", &serde_json::Map::new())?;
 
-    let node_values: Vec<Value> = nodes.iter().map(|n| python_node(n, community_labels)).collect();
+    let node_values: Vec<Value> = nodes
+        .iter()
+        .map(|n| python_node(n, community_labels))
+        .collect();
     map.serialize_entry("nodes", &node_values)?;
 
     let edge_values: Vec<Value> = edges.iter().map(|e| python_edge(e)).collect();
@@ -318,7 +329,16 @@ mod tests {
         let n = node("a", "Foo", Some("code"), NodeType::File);
         let v = python_node(&n, None);
         let obj = v.as_object().unwrap();
-        for k in ["id", "label", "source_file", "source_location", "community", "_origin", "file_type", "norm_label"] {
+        for k in [
+            "id",
+            "label",
+            "source_file",
+            "source_location",
+            "community",
+            "_origin",
+            "file_type",
+            "norm_label",
+        ] {
             assert!(obj.contains_key(k), "missing key {k}");
         }
         assert!(!obj.contains_key("node_type"), "node_type must be dropped");
@@ -342,17 +362,18 @@ mod tests {
         let v = python_edge(&e);
         let obj = v.as_object().unwrap();
         assert_eq!(obj["relation"], Value::String("contains".into()));
-        assert!(!obj.contains_key("provenance"), "provenance must be dropped");
+        assert!(
+            !obj.contains_key("provenance"),
+            "provenance must be dropped"
+        );
         assert_eq!(obj["source_file"], Value::String("src/foo.rs".into()));
     }
 
     #[test]
     fn python_edge_folds_imported_symbols_into_context() {
         let mut e = edge("a", "b", "imports");
-        e.extra.insert(
-            "imported_symbols".into(),
-            json!(["Alpha", "Beta"]),
-        );
+        e.extra
+            .insert("imported_symbols".into(), json!(["Alpha", "Beta"]));
         let v = python_edge(&e);
         assert_eq!(v["relation"], Value::String("imports_from".into()));
         assert_eq!(v["context"], Value::String("Alpha,Beta".into()));
@@ -368,7 +389,14 @@ mod tests {
         let mut buf: Vec<u8> = Vec::new();
         write_python_compat_json(&mut buf, &nodes, &edges, &[], None).unwrap();
         let v: Value = serde_json::from_slice(&buf).unwrap();
-        for k in ["directed", "multigraph", "graph", "nodes", "links", "hyperedges"] {
+        for k in [
+            "directed",
+            "multigraph",
+            "graph",
+            "nodes",
+            "links",
+            "hyperedges",
+        ] {
             assert!(v.get(k).is_some(), "missing top-level key {k}");
         }
         assert_eq!(v["links"][0]["relation"], Value::String("contains".into()));

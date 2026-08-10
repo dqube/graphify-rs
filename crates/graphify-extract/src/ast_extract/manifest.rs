@@ -92,13 +92,7 @@ pub(crate) fn extract_package_manifest(path: &Path, source: &str) -> ExtractionR
         if dep_id == self_id || dep_id.is_empty() || !seen.insert(dep_id.clone()) {
             continue;
         }
-        let mut edge = make_edge(
-            &self_id,
-            &dep_id,
-            "depends_on",
-            path,
-            Confidence::Extracted,
-        );
+        let mut edge = make_edge(&self_id, &dep_id, "depends_on", path, Confidence::Extracted);
         edge.source_location = Some("L1".to_string());
         edge.extra.insert(
             "context".to_string(),
@@ -230,9 +224,7 @@ fn parse_apm(text: &str) -> Option<ManifestInfo> {
     let mut in_deps = false;
 
     for line in text.lines() {
-        if !in_deps
-            && let Some(c) = RE_APM_NAME.captures(line)
-        {
+        if !in_deps && let Some(c) = RE_APM_NAME.captures(line) {
             name = Some(c[1].to_string());
             continue;
         }
@@ -524,7 +516,11 @@ version: 1.0.0
     #[test]
     fn malformed_manifests_yield_nothing() {
         assert!(run("pyproject.toml", "not = = toml").nodes.is_empty());
-        assert!(run("pyproject.toml", "[project]\nversion = \"1\"\n").nodes.is_empty());
+        assert!(
+            run("pyproject.toml", "[project]\nversion = \"1\"\n")
+                .nodes
+                .is_empty()
+        );
         assert!(run("go.mod", "go 1.22\n").nodes.is_empty());
         assert!(run("pom.xml", "<project></project>").nodes.is_empty());
     }

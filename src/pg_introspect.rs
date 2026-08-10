@@ -71,9 +71,7 @@ struct SchemaSnapshot {
 /// the name it captures.
 fn quote_ident(name: &str) -> String {
     let simple = !name.is_empty()
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
         && !name.starts_with(|c: char| c.is_ascii_digit())
         && name == name.to_ascii_lowercase();
     if simple {
@@ -198,10 +196,7 @@ fn to_extraction(snap: &SchemaSnapshot, virtual_path: &str) -> ExtractionResult 
             "constraint".to_string(),
             Value::String(f.constraint.clone()),
         );
-        extra.insert(
-            "columns".to_string(),
-            Value::String(f.columns.join(", ")),
-        );
+        extra.insert("columns".to_string(), Value::String(f.columns.join(", ")));
         extra.insert(
             "foreign_columns".to_string(),
             Value::String(f.foreign_columns.join(", ")),
@@ -229,9 +224,12 @@ fn to_extraction(snap: &SchemaSnapshot, virtual_path: &str) -> ExtractionResult 
 fn connection_config(dsn: &str) -> Result<Config> {
     if !dsn.trim().is_empty() {
         // Never include the DSN in the error — it carries the password.
-        return dsn
-            .parse::<Config>()
-            .map_err(|e| anyhow::anyhow!("invalid PostgreSQL connection string: {}", first_line(&e.to_string())));
+        return dsn.parse::<Config>().map_err(|e| {
+            anyhow::anyhow!(
+                "invalid PostgreSQL connection string: {}",
+                first_line(&e.to_string())
+            )
+        });
     }
 
     let mut cfg = Config::new();

@@ -102,7 +102,10 @@ fn read_member(archive: &mut Archive, name: &str, budget: &mut u64) -> Option<St
     let entry = archive.by_name(name).ok()?;
     let limit = *budget;
     let mut buf = Vec::new();
-    entry.take(limit.saturating_add(1)).read_to_end(&mut buf).ok()?;
+    entry
+        .take(limit.saturating_add(1))
+        .read_to_end(&mut buf)
+        .ok()?;
     if buf.len() as u64 > limit {
         debug!("office: member {name} exceeded the decompression budget");
         return None;
@@ -546,9 +549,8 @@ mod tests {
 
     #[test]
     fn docx_runs_are_joined_and_entities_decoded() {
-        let xml = docx_xml(
-            "<w:p><w:r><w:t>Tom </w:t></w:r><w:r><w:t>&amp; Jerry</w:t></w:r></w:p>",
-        );
+        let xml =
+            docx_xml("<w:p><w:r><w:t>Tom </w:t></w:r><w:r><w:t>&amp; Jerry</w:t></w:r></w:p>");
         assert!(parse_docx(&xml).contains("Tom & Jerry"));
     }
 
