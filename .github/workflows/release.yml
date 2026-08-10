@@ -1,0 +1,126 @@
+name: Release
+
+# Builds standalone binaries for every supported platform and publishes them to
+# a GitHub Release. Users install them with install.sh / install.ps1 and never
+# need a Rust toolchain.
+#
+# Trigger: push a semver tag, e.g.
+#   git tag v0.8.2 && git push origin v0.8.2
+# Or run manually from the Actions tab to produce a draft release.
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (e.g. v0.8.2). Produces a draft release."
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # Keep debug symbols out of the shipped binary; halves artifact size.
+  CARGO_PROFILE_RELEASE_STRIP: symbols
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One platform failing should not hide binaries that did build.
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-13
+          - target: x86_64-unknown-linux-gnu
+            # 22.04 rather than latest: links against glibc 2.35, so the
+            # binary also runs on Debian 12, RHEL 9, and Ubuntu 22.04+.
+            os: ubuntu-22.04
+          - target: aarch64-unknown-linux-gnu
+            # Native arm64 runner — avoids a cross toolchain, which the
+            # bundled SQLite and tree-sitter C sources would otherwise need.
+            os: ubuntu-22.04-arm
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --locked --bin graphify-rs --target ${{ matrix.target }}
+
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          staging="graphify-rs-${{ matrix.target }}"
+          mkdir -p "$staging"
+          cp "target/${{ matrix.target }}/release/graphify-rs" "$staging/"
+          cp README.md LICENSE "$staging/" 2>/dev/null || true
+          tar czf "$staging.tar.gz" "$staging"
+          shasum -a 256 "$staging.tar.gz" > "$staging.tar.gz.sha256"
+
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $staging = "graphify-rs-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/graphify-rs.exe" $staging
+          Copy-Item README.md, LICENSE $staging -ErrorAction SilentlyContinue
+          Compress-Archive -Path $staging -DestinationPath "$staging.zip"
+          $h = (Get-FileHash "$staging.zip" -Algorithm SHA256).Hash.ToLower()
+          "$h  $staging.zip" | Out-File -Encoding ascii "$staging.zip.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: graphify-rs-${{ matrix.target }}
+          path: |
+            graphify-rs-*.tar.gz
+            graphify-rs-*.tar.gz.sha256
+            graphify-rs-*.zip
+            graphify-rs-*.zip.sha256
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Collect checksums
+        run: cat artifacts/*.sha256 | sed 's| .*/| |' > artifacts/SHA256SUMS
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          # Manual runs stay drafts so a dry run never ships by accident.
+          draft: ${{ github.event_name == 'workflow_dispatch' }}
+          generate_release_notes: true
+          files: |
+            artifacts/*.tar.gz
+            artifacts/*.zip
+            artifacts/SHA256SUMS

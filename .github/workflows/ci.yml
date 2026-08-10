@@ -44,3 +44,40 @@ jobs:
         with:
           components: clippy
       - run: cargo clippy --workspace -- -D warnings
+
+  # The installers are the first thing a new user runs, and a syntax error in
+  # them is invisible until someone's terminal breaks. Parse both on the shell
+  # that will actually execute them.
+  installers:
+    name: Installer scripts
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            script: sh
+          - os: windows-latest
+            script: powershell
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check install.sh
+        if: matrix.script == 'sh'
+        run: |
+          sh -n install.sh
+          # shellcheck ships on the Ubuntu runner image.
+          shellcheck --shell=sh install.sh
+
+      - name: Check install.ps1
+        if: matrix.script == 'powershell'
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path ./install.ps1), [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) {
+              $errors | ForEach-Object { Write-Host "::error::$_" }
+              exit 1
+          }
+          Write-Host "install.ps1 parsed cleanly"

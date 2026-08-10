@@ -31,12 +31,61 @@ Three things it does that an **LLM alone cannot**:
 | 2 | **Honest audit trail** | Every edge tagged `EXTRACTED`, `INFERRED`, or `AMBIGUOUS`. Facts vs. guesses, always clear. |
 | 3 | **Cross-document surprise** | Community detection finds connections you'd never think to ask about. |
 
+## Install
+
+No Rust toolchain required — these download a prebuilt binary.
+
+**macOS / Linux**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dqube/graphify-rs/main/install.sh | sh
+```
+
+**Windows (PowerShell)**
+
+```powershell
+irm https://raw.githubusercontent.com/dqube/graphify-rs/main/install.ps1 | iex
+```
+
+<details>
+<summary>Other options</summary>
+
+```bash
+# From crates.io (needs Rust)
+cargo install graphify-rs
+
+# From source
+cargo install --git https://github.com/dqube/graphify-rs
+
+# Pin a version, or choose where it lands
+GRAPHIFY_VERSION=v0.8.2 GRAPHIFY_INSTALL_DIR=/usr/local/bin \
+  sh -c "$(curl -fsSL https://raw.githubusercontent.com/dqube/graphify-rs/main/install.sh)"
+```
+
+```powershell
+# Windows equivalents
+$env:GRAPHIFY_VERSION = 'v0.8.2'
+$env:GRAPHIFY_INSTALL_DIR = 'C:\tools\graphify'
+irm https://raw.githubusercontent.com/dqube/graphify-rs/main/install.ps1 | iex
+```
+
+Or download an archive directly from [Releases](https://github.com/dqube/graphify-rs/releases)
+and put the binary on your `PATH`. Every release ships `SHA256SUMS`, which both
+installers verify automatically.
+
+| Platform | Target |
+|---|---|
+| macOS (Apple Silicon) | `aarch64-apple-darwin` |
+| macOS (Intel) | `x86_64-apple-darwin` |
+| Linux x86-64 (glibc 2.35+) | `x86_64-unknown-linux-gnu` |
+| Linux ARM64 (glibc 2.35+) | `aarch64-unknown-linux-gnu` |
+| Windows x64 | `x86_64-pc-windows-msvc` |
+
+</details>
+
 ## Quick Start
 
 ```bash
-# Install
-cargo install graphify-rs
-
 # Build a knowledge graph (free, fast, no API key needed)
 graphify-rs build --no-llm
 
