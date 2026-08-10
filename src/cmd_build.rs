@@ -27,6 +27,7 @@ pub async fn cmd_build(
     deep: bool,
     neo4j_conn: Option<graphify_export::Neo4jConnection>,
     media_model: Option<String>,
+    dedup_llm: Option<String>,
 ) -> Result<()> {
     let root = PathBuf::from(path);
     let output_dir = PathBuf::from(output);
@@ -155,6 +156,13 @@ pub async fn cmd_build(
         community_labels,
     } = step_cluster(&mut graph, verb);
 
+    // Near-duplicate dedup runs after clustering so it can use community
+    // assignments as a same-topic tiebreaker. Skipped when no LLM tiebreaker
+    // is configured AND the corpus is tiny (the extra pass is not worth the
+    // overhead on a handful of nodes).
+    let (graph, communities) =
+        step_dedup_near(graph, communities, dedup_llm.as_deref(), verb)?;
+
     step_analyze_and_export(
         &graph,
         &communities,
@@ -180,6 +188,92 @@ pub async fn cmd_build(
     );
 
     Ok(())
+}
+
+/// Near-duplicate dedup pass. Extracts nodes and edges from `graph`, runs
+/// MinHash + LSH + Jaro-Winkler with the safety guards from
+/// [`graphify_build::deduplicate_entities`], and rebuilds the graph when any
+/// merges happened. On a no-op run the original graph and communities are
+/// returned untouched.
+fn step_dedup_near(
+    graph: graphify_core::graph::KnowledgeGraph,
+    communities: HashMap<usize, Vec<String>>,
+    dedup_llm: Option<&str>,
+    verb: Verbosity,
+) -> Result<(
+    graphify_core::graph::KnowledgeGraph,
+    HashMap<usize, Vec<String>>,
+)> {
+    let nodes: Vec<graphify_core::model::GraphNode> =
+        graph.nodes().into_iter().cloned().collect();
+    let edges: Vec<graphify_core::model::GraphEdge> =
+        graph.edges().into_iter().cloned().collect();
+    let hyperedges = graph.hyperedges.clone();
+    // Flatten communities to id -> community_id for the dedup pass.
+    let mut node_to_community: HashMap<String, usize> = HashMap::new();
+    for (cid, members) in &communities {
+        for id in members {
+            node_to_community.insert(id.clone(), *cid);
+        }
+    }
+
+    let (new_nodes, new_edges, stats) =
+        graphify_build::deduplicate_entities(nodes, edges, &node_to_community, dedup_llm);
+
+    let merged = stats.exact_merges + stats.fuzzy_merges;
+    if merged == 0 && stats.ambiguous_pairs == 0 {
+        return Ok((graph, communities));
+    }
+    info_print!(
+        verb,
+        "  {} {} node(s) ({} exact, {} fuzzy){}",
+        "Deduped".cyan(),
+        merged.to_string().bold(),
+        stats.exact_merges,
+        stats.fuzzy_merges,
+        if stats.ambiguous_pairs > 0 {
+            format!(" · {} ambiguous pair(s) for LLM tiebreak", stats.ambiguous_pairs)
+        } else {
+            String::new()
+        }
+    );
+    if stats.id_collisions > 0 {
+        info_print!(
+            verb,
+            "  {} {} node id collision(s) between different source files",
+            "⚠".yellow(),
+            stats.id_collisions
+        );
+    }
+
+    // Rebuild the graph from the surviving nodes/edges. `build_from_extraction`
+    // silently drops dangling edges, which is what we want since dedup can
+    // only leave edges valid (survivors keep IDs, merged nodes get rewired).
+    let mut extraction = graphify_core::model::ExtractionResult {
+        nodes: new_nodes,
+        edges: new_edges,
+        hyperedges: Vec::new(),
+    };
+    extraction.hyperedges = hyperedges;
+    let rebuilt = graphify_build::build_from_extraction(&extraction)
+        .context("failed to rebuild graph after dedup")?;
+
+    // Recompute community membership over the survivor set.
+    let surviving_ids: std::collections::HashSet<String> =
+        rebuilt.nodes().iter().map(|n| n.id.clone()).collect();
+    let new_communities: HashMap<usize, Vec<String>> = communities
+        .into_iter()
+        .map(|(cid, members)| {
+            let members: Vec<String> = members
+                .into_iter()
+                .filter(|id| surviving_ids.contains(id))
+                .collect();
+            (cid, members)
+        })
+        .filter(|(_, m)| !m.is_empty())
+        .collect();
+
+    Ok((rebuilt, new_communities))
 }
 
 /// `--cluster-only`: load an existing graph.json, re-run Leiden clustering and

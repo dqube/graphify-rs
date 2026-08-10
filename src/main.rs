@@ -11,8 +11,10 @@ mod cmd_clone;
 mod cmd_diagnose;
 mod cmd_explain;
 mod cmd_extract;
+mod cmd_global;
 mod cmd_label;
 mod cmd_merge;
+mod cmd_merge_chunks;
 mod cmd_path;
 mod cmd_provider;
 mod cmd_prs;
@@ -75,6 +77,12 @@ enum Commands {
         /// Maximum nodes in HTML visualization (default: 2000). Larger values may slow browser.
         #[arg(long)]
         max_viz_nodes: Option<usize>,
+        /// LLM backend to consult for ambiguous near-duplicate pairs (e.g. `anthropic`, `openai`).
+        /// When set, MinHash+LSH candidate pairs whose Jaro-Winkler score falls in the
+        /// [75, 92) ambiguity window are surfaced for follow-up. Runs alongside the deterministic
+        /// dedup pass; requires an API key for the chosen backend.
+        #[arg(long)]
+        dedup_llm: Option<String>,
     },
     /// Install graphify skill for AI coding assistant
     Install {
@@ -103,6 +111,27 @@ enum Commands {
         #[arg(required = true, num_args = 2..)]
         inputs: Vec<String>,
         /// Where to write the merged graph
+        #[arg(short, long)]
+        output: String,
+    },
+    /// Merge semantic chunk files written by parallel subagents
+    MergeChunks {
+        /// Chunk JSON paths or wildcard patterns (one or more)
+        #[arg(required = true, num_args = 1..)]
+        chunks: Vec<String>,
+        /// Where to write the merged extraction result
+        #[arg(short, long)]
+        output: String,
+    },
+    /// Merge a cached extraction result with freshly-extracted output
+    MergeSemantic {
+        /// Previously-extracted result; cached nodes win on conflict
+        #[arg(long)]
+        cached: Option<String>,
+        /// Freshly-extracted result
+        #[arg(long)]
+        new: Option<String>,
+        /// Where to write the merged extraction result
         #[arg(short, long)]
         output: String,
     },
@@ -160,6 +189,11 @@ enum Commands {
         /// Where to write extraction.json (default: stdout)
         #[arg(short, long)]
         output: Option<String>,
+    },
+    /// Cross-project graph stored in ~/.graphify/
+    Global {
+        #[command(subcommand)]
+        action: GlobalAction,
     },
     /// Graph-aware pull request dashboard
     Prs {
@@ -254,6 +288,16 @@ enum Commands {
     },
     /// Trae CN integration
     TraeCn {
+        #[command(subcommand)]
+        action: PlatformAction,
+    },
+    /// GitHub Copilot integration
+    Copilot {
+        #[command(subcommand)]
+        action: PlatformAction,
+    },
+    /// VSCode integration
+    Vscode {
         #[command(subcommand)]
         action: PlatformAction,
     },
@@ -367,6 +411,27 @@ fn default_output_dir() -> String {
 }
 
 #[derive(Subcommand)]
+enum GlobalAction {
+    /// Add or update a project's graph in the global graph
+    Add {
+        /// Path to the project's graph.json
+        source: String,
+        /// Name to file it under (defaults to the project directory name)
+        #[arg(long = "as")]
+        as_tag: Option<String>,
+    },
+    /// Remove a project from the global graph
+    Remove {
+        /// The repo tag to remove
+        tag: String,
+    },
+    /// List tracked projects
+    List,
+    /// Print the path to the global graph file
+    Path,
+}
+
+#[derive(Subcommand)]
 enum ProviderAction {
     /// List supported LLM providers and which one is configured
     List,
@@ -469,6 +534,7 @@ async fn main() -> Result<()> {
             neo4j_push,
             format,
             max_viz_nodes,
+            dedup_llm,
         } => {
             let app_cfg = config::load_config(Path::new(&path));
             let effective_path = path;
@@ -519,6 +585,7 @@ async fn main() -> Result<()> {
                 deep,
                 neo4j_conn,
                 media_model,
+                dedup_llm,
             )
             .await?;
         }
@@ -545,6 +612,16 @@ async fn main() -> Result<()> {
         }
         Commands::MergeGraphs { inputs, output } => {
             cmd_merge::cmd_merge_graphs(&inputs, &output)?;
+        }
+        Commands::MergeChunks { chunks, output } => {
+            cmd_merge_chunks::cmd_merge_chunks(&chunks, &output)?;
+        }
+        Commands::MergeSemantic {
+            cached,
+            new,
+            output,
+        } => {
+            cmd_merge_chunks::cmd_merge_semantic(cached.as_deref(), new.as_deref(), &output)?;
         }
         Commands::MergeDriver { base, ours, theirs } => {
             cmd_merge::cmd_merge_driver(&base, &ours, &theirs)?;
@@ -583,6 +660,14 @@ async fn main() -> Result<()> {
         Commands::Extract { path, output } => {
             cmd_extract::cmd_extract(&path, output.as_deref())?;
         }
+        Commands::Global { action } => match action {
+            GlobalAction::Add { source, as_tag } => {
+                cmd_global::cmd_global_add(&source, as_tag.as_deref())?;
+            }
+            GlobalAction::Remove { tag } => cmd_global::cmd_global_remove(&tag)?,
+            GlobalAction::List => cmd_global::cmd_global_list()?,
+            GlobalAction::Path => cmd_global::cmd_global_path()?,
+        },
         Commands::Prs {
             number,
             triage,
@@ -704,6 +789,20 @@ async fn main() -> Result<()> {
                 PlatformAction::Uninstall => install::generic_platform_uninstall(root, "Trae CN")?,
             }
         }
+        Commands::Copilot { action } => {
+            let root = Path::new(".");
+            match action {
+                PlatformAction::Install => install::copilot_install(root)?,
+                PlatformAction::Uninstall => install::copilot_uninstall(root)?,
+            }
+        }
+        Commands::Vscode { action } => {
+            let root = Path::new(".");
+            match action {
+                PlatformAction::Install => install::vscode_install(root)?,
+                PlatformAction::Uninstall => install::vscode_uninstall(root)?,
+            }
+        }
         Commands::SaveResult {
             question,
             answer,
@@ -764,6 +863,7 @@ async fn main() -> Result<()> {
                     false,
                     false,
                     false,
+                    None,
                     None,
                     None,
                 )

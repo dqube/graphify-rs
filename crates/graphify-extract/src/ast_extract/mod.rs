@@ -12,6 +12,7 @@
 //! - **Calls** edges inferred by matching known function names within bodies
 
 mod apex;
+mod blade;
 mod c_cpp;
 mod csharp;
 mod cuda;
@@ -27,6 +28,7 @@ mod json;
 mod kotlin;
 mod metal;
 mod pascal;
+mod pascal_form;
 mod projfiles;
 mod python;
 mod ruby;
@@ -178,11 +180,13 @@ pub fn extract_file(path: &Path, source: &str, lang: &str) -> ExtractionResult {
         "metal" => metal::extract_metal(path, source),
         "groovy" => groovy::extract_groovy(path, source),
         "apex" => apex::extract_apex(path, source),
+        "blade" => blade::extract_blade(path, source),
         "shell" => shell::extract_shell(path, source),
         "sql" => sql::extract_sql(path, source),
         "hcl" => hcl::extract_hcl(path, source),
         "fortran" => fortran::extract_fortran(path, source),
         "pascal" => pascal::extract_pascal(path, source),
+        "pascal_form" => pascal_form::extract_pascal_form(path, source),
         "verilog" => verilog::extract_verilog(path, source),
         "dm" => dm::extract_dm(path, source),
         "json" => json::extract_json(path, source),

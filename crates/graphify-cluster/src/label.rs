@@ -28,9 +28,9 @@ use std::path::{Path, PathBuf};
 
 use graphify_core::graph::KnowledgeGraph;
 use graphify_core::model::NodeType;
-use graphify_extract::semantic::{AuthType, LLMProvider, LLMProviderConfig};
+use graphify_extract::semantic::LLMProviderConfig;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 use tracing::{debug, warn};
 
 /// Representative member labels sampled per community for the prompt. Enough
@@ -75,9 +75,6 @@ pub const LABELS_SIDECAR: &str = ".graphify_labels.json";
 
 /// Per-node field carrying the community name in `graph.json`.
 pub const NODE_LABEL_FIELD: &str = "community_name";
-
-/// Request timeout for a single labelling call.
-const REQUEST_TIMEOUT_SECS: u64 = 120;
 
 /// Tuning knobs for [`label_communities`].
 #[derive(Debug, Clone)]
@@ -544,125 +541,18 @@ pub fn cache_store(cache_dir: &Path, key: &str, label: &str) -> bool {
 
 // ── LLM transport ─────────────────────────────────────────────────────────────
 
-#[derive(Serialize)]
-struct ChatMessage {
-    role: &'static str,
-    content: String,
-}
-
-#[derive(Serialize)]
-struct ChatRequest {
-    model: String,
-    max_tokens: u32,
-    messages: Vec<ChatMessage>,
-}
-
-#[derive(Deserialize)]
-struct ChatResponse {
-    choices: Vec<ChatChoice>,
-}
-
-#[derive(Deserialize)]
-struct ChatChoice {
-    message: ChatChoiceMessage,
-}
-
-#[derive(Deserialize)]
-struct ChatChoiceMessage {
-    content: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct AnthropicResponse {
-    content: Vec<AnthropicBlock>,
-}
-
-#[derive(Deserialize)]
-struct AnthropicBlock {
-    text: Option<String>,
-}
-
 /// Send one naming prompt and return the raw completion text.
 ///
-/// This is a plain text-in/text-out call. The extractor's clients cannot be
-/// reused directly because they parse their reply into an `ExtractionResult`;
-/// only the provider *configuration* is shared.
+/// The transport itself lives in `graphify-extract` alongside the provider
+/// resolution it depends on, because community naming is not the only caller
+/// that needs prose out of the configured model (`prs --triage` is the other).
+/// This wrapper stays so the rest of the module keeps reading in naming terms.
 async fn call_llm(
     prompt: &str,
     max_tokens: u32,
     config: &LLMProviderConfig,
 ) -> anyhow::Result<String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .build()?;
-
-    match config.provider {
-        LLMProvider::Anthropic => {
-            let body = json!({
-                "model": config.model,
-                "max_tokens": max_tokens,
-                "messages": [{ "role": "user", "content": prompt }],
-            });
-            let mut request = client
-                .post(format!("{}/v1/messages", config.base_url))
-                .header("anthropic-version", "2023-06-01")
-                .header("content-type", "application/json")
-                .json(&body);
-            let key = config.api_key.as_deref().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "No credentials for Anthropic. Set ANTHROPIC_API_KEY, run `claude login`, \
-                     or configure [llm] in graphify-rs.toml"
-                )
-            })?;
-            request = match config.auth_type {
-                AuthType::ApiKey => request.header("x-api-key", key),
-                AuthType::Bearer => request.header("authorization", format!("Bearer {key}")),
-            };
-
-            let response = request.send().await?;
-            let status = response.status();
-            if !status.is_success() {
-                let body = response.text().await.unwrap_or_default();
-                anyhow::bail!("Anthropic API returned {status}: {body}");
-            }
-            let parsed: AnthropicResponse = response.json().await?;
-            Ok(parsed
-                .content
-                .into_iter()
-                .find_map(|b| b.text)
-                .unwrap_or_default())
-        }
-        LLMProvider::OpenAI | LLMProvider::Ollama | LLMProvider::OpenAICompatible => {
-            let body = ChatRequest {
-                model: config.model.clone(),
-                max_tokens,
-                messages: vec![ChatMessage {
-                    role: "user",
-                    content: prompt.to_string(),
-                }],
-            };
-            let mut request = client
-                .post(format!("{}/chat/completions", config.base_url))
-                .header("content-type", "application/json")
-                .json(&body);
-            if let Some(key) = config.api_key.as_deref() {
-                request = request.header("authorization", format!("Bearer {key}"));
-            }
-
-            let response = request.send().await?;
-            let status = response.status();
-            if !status.is_success() {
-                let body = response.text().await.unwrap_or_default();
-                anyhow::bail!("LLM API at {} returned {status}: {body}", config.base_url);
-            }
-            let parsed: ChatResponse = response.json().await?;
-            Ok(parsed
-                .choices
-                .into_iter()
-                .find_map(|c| c.message.content)
-                .unwrap_or_default())
-        }
-    }
+    graphify_extract::semantic::complete_text(prompt, max_tokens, config).await
 }
 
 /// Result of naming one batch of communities.

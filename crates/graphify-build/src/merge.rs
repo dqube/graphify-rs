@@ -468,7 +468,93 @@ pub fn distinct_repo_tags<P: AsRef<Path>>(paths: &[P]) -> Vec<String> {
         .collect()
 }
 
+/// Remove every node contributed by `tag`, plus the edges incident to them.
+///
+/// Returns the pruned graph and how many nodes it dropped.
+///
+/// This is the counterpart to adding a tagged graph with [`MergeInput::tagged`]:
+/// re-adding a project has to *replace* its contribution rather than pile a
+/// second copy on top, and dropping a project has to leave nothing of it behind.
+///
+/// A new graph comes back instead of an in-place edit because [`KnowledgeGraph`]
+/// deliberately exposes no node removal — its `add_edge` resolves endpoints
+/// through an id index, so a partial removal would strand edges pointing at ids
+/// that no longer resolve. Rebuilding makes the invariant structural: an edge
+/// survives only if both of its endpoints did.
+///
+/// Ownership is read from the `repo` field that [`merge_graphs`] stamps on every
+/// namespaced node, falling back to the `tag::` id prefix so a global graph
+/// written before that field existed still prunes correctly. A node that
+/// explicitly claims a *different* `repo` is never pruned on prefix alone: the
+/// stated owner is better evidence than a string match on the id.
+pub fn prune_repo_from_graph(graph: &KnowledgeGraph, tag: &str) -> (KnowledgeGraph, usize) {
+    let prefix = format!("{tag}::");
+    let survivors: HashSet<&str> = graph
+        .nodes()
+        .into_iter()
+        .filter(|n| !belongs_to_repo(n, tag, &prefix))
+        .map(|n| n.id.as_str())
+        .collect();
+    let removed = graph.node_count() - survivors.len();
+
+    let mut pruned = KnowledgeGraph::new();
+    for node in graph.nodes() {
+        if survivors.contains(node.id.as_str()) {
+            // Ids are unique within the source graph, so this cannot collide.
+            let _ = pruned.add_node(node.clone());
+        }
+    }
+    for edge in graph.edges() {
+        if survivors.contains(edge.source.as_str()) && survivors.contains(edge.target.as_str()) {
+            // Both endpoints were just inserted, so this cannot dangle.
+            let _ = pruned.add_edge(edge.clone());
+        }
+    }
+
+    // A hyperedge is a single fact about a *set* of nodes; with a member gone it
+    // no longer states that fact, so it goes rather than quietly shrinking.
+    pruned.set_hyperedges(
+        graph
+            .hyperedges
+            .iter()
+            .filter(|h| h.nodes.iter().all(|n| survivors.contains(n.as_str())))
+            .cloned()
+            .collect(),
+    );
+
+    pruned.communities = graph
+        .communities
+        .iter()
+        .filter_map(|c| {
+            let nodes: Vec<String> = c
+                .nodes
+                .iter()
+                .filter(|n| survivors.contains(n.as_str()))
+                .cloned()
+                .collect();
+            // A community that lost every member is not an empty community, it
+            // is a community that no longer exists.
+            (!nodes.is_empty()).then(|| CommunityInfo {
+                id: c.id,
+                nodes,
+                cohesion: c.cohesion,
+                label: c.label.clone(),
+            })
+        })
+        .collect();
+
+    (pruned, removed)
+}
+
 // --- internals ---------------------------------------------------------------
+
+/// Whether `node` was contributed by `tag`. See [`prune_repo_from_graph`].
+fn belongs_to_repo(node: &GraphNode, tag: &str, prefix: &str) -> bool {
+    match node.extra.get("repo").and_then(Value::as_str) {
+        Some(repo) => repo == tag,
+        None => node.id.starts_with(prefix),
+    }
+}
 
 /// Prepend `tag::` to an id, or return it unchanged when untagged.
 fn namespaced(tag: Option<&str>, id: &str) -> String {
@@ -1140,5 +1226,130 @@ mod tests {
     fn rootless_paths_fall_back_to_a_placeholder_tag() {
         let tags = distinct_repo_tags(&["graph.json", "other.json"]);
         assert_eq!(tags, vec!["repo", "repo-2"]);
+    }
+
+    // --- prune_repo_from_graph ------------------------------------------------
+
+    /// A node as `merge_graphs` writes it for a tagged input.
+    fn owned_node(tag: &str, id: &str) -> GraphNode {
+        let mut n = node(&format!("{tag}::{id}"));
+        n.extra
+            .insert("repo".into(), Value::String(tag.to_string()));
+        n.extra.insert("local_id".into(), Value::String(id.into()));
+        n
+    }
+
+    fn sorted_ids(graph: &KnowledgeGraph) -> Vec<String> {
+        let mut ids = graph.node_ids();
+        ids.sort();
+        ids
+    }
+
+    #[test]
+    fn pruning_drops_a_repos_nodes_and_every_edge_touching_them() {
+        let graph = graph_of(
+            vec![owned_node("api", "a"), owned_node("web", "b")],
+            vec![
+                edge("api::a", "web::b"), // cross-repo: dies with its endpoint
+                edge("web::b", "api::a"),
+            ],
+        );
+
+        let (pruned, removed) = prune_repo_from_graph(&graph, "api");
+
+        assert_eq!(removed, 1);
+        assert_eq!(sorted_ids(&pruned), vec!["web::b"]);
+        assert_eq!(pruned.edge_count(), 0);
+    }
+
+    #[test]
+    fn pruning_falls_back_to_the_id_prefix_for_older_graphs() {
+        // Written before nodes carried `repo`: only the prefix identifies them.
+        let graph = graph_of(
+            vec![node("api::a"), node("web::b")],
+            vec![edge("api::a", "web::b")],
+        );
+
+        let (pruned, removed) = prune_repo_from_graph(&graph, "api");
+
+        assert_eq!(removed, 1);
+        assert_eq!(sorted_ids(&pruned), vec!["web::b"]);
+    }
+
+    #[test]
+    fn a_node_claiming_another_repo_survives_a_matching_prefix() {
+        // The stated owner wins: this node happens to be named `api::…` but was
+        // contributed by `web`, and pruning `api` must not take it.
+        let mut impostor = node("api::a");
+        impostor
+            .extra
+            .insert("repo".into(), Value::String("web".into()));
+        let graph = graph_of(vec![impostor, owned_node("api", "b")], vec![]);
+
+        let (pruned, removed) = prune_repo_from_graph(&graph, "api");
+
+        assert_eq!(removed, 1);
+        assert_eq!(sorted_ids(&pruned), vec!["api::a"]);
+    }
+
+    #[test]
+    fn pruning_an_untracked_tag_changes_nothing() {
+        let graph = graph_of(
+            vec![owned_node("api", "a"), owned_node("api", "b")],
+            vec![edge("api::a", "api::b")],
+        );
+
+        let (pruned, removed) = prune_repo_from_graph(&graph, "nope");
+
+        assert_eq!(removed, 0);
+        assert_eq!(pruned.node_count(), 2);
+        assert_eq!(pruned.edge_count(), 1);
+    }
+
+    #[test]
+    fn pruning_drops_hyperedges_and_communities_that_lost_members() {
+        let mut graph = graph_of(
+            vec![
+                owned_node("api", "a"),
+                owned_node("web", "b"),
+                owned_node("web", "c"),
+            ],
+            vec![],
+        );
+        graph.set_hyperedges(vec![
+            Hyperedge {
+                nodes: vec!["api::a".into(), "web::b".into()],
+                relation: "co-change".into(),
+                label: "mixed".into(),
+            },
+            Hyperedge {
+                nodes: vec!["web::b".into(), "web::c".into()],
+                relation: "co-change".into(),
+                label: "web only".into(),
+            },
+        ]);
+        graph.communities = vec![
+            CommunityInfo {
+                id: 0,
+                nodes: vec!["api::a".into()],
+                cohesion: 0.5,
+                label: Some("api::core".into()),
+            },
+            CommunityInfo {
+                id: 1,
+                nodes: vec!["api::a".into(), "web::b".into()],
+                cohesion: 0.25,
+                label: Some("shared".into()),
+            },
+        ];
+
+        let (pruned, _) = prune_repo_from_graph(&graph, "api");
+
+        // The all-api community is gone; the mixed one keeps only what is left.
+        assert_eq!(pruned.communities.len(), 1);
+        assert_eq!(pruned.communities[0].id, 1);
+        assert_eq!(pruned.communities[0].nodes, vec!["web::b".to_string()]);
+        assert_eq!(pruned.hyperedges.len(), 1);
+        assert_eq!(pruned.hyperedges[0].label, "web only");
     }
 }

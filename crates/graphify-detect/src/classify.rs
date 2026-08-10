@@ -151,6 +151,8 @@ mod tests {
         for ext in &[
             ".py", ".rs", ".ts", ".go", ".java", ".cpp", ".js", ".jsx", ".tsx", ".c", ".h", ".rb",
             ".swift", ".kt", ".cs", ".lua", ".zig", ".jl", ".ex", ".mm",
+            // Phase 3 variants.
+            ".mts", ".cts", ".mjs", ".luau", ".psm1", ".psd1", ".inc", ".dfm", ".lfm", ".slnx",
         ] {
             let p = PathBuf::from(format!("foo{ext}"));
             assert_eq!(
@@ -163,7 +165,7 @@ mod tests {
 
     #[test]
     fn classify_doc_extensions() {
-        for ext in &[".md", ".txt", ".rst"] {
+        for ext in &[".md", ".txt", ".rst", ".mdx", ".qmd", ".yaml", ".yml"] {
             let p = PathBuf::from(format!("README{ext}"));
             assert_eq!(
                 classify_file(&p),

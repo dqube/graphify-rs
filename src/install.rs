@@ -70,6 +70,20 @@ const PLATFORMS: &[(&str, PlatformConfig)] = &[
         },
     ),
     (
+        "copilot",
+        PlatformConfig {
+            skill_dst: ".config/github-copilot/skills/graphify-rs/SKILL.md",
+            register_claude_md: false,
+        },
+    ),
+    (
+        "vscode",
+        PlatformConfig {
+            skill_dst: ".vscode/skills/graphify-rs/SKILL.md",
+            register_claude_md: false,
+        },
+    ),
+    (
         "windows",
         PlatformConfig {
             skill_dst: ".claude/skills/graphify-rs/SKILL.md",
@@ -101,6 +115,12 @@ Rules:
 const CLAUDE_MD_MARKER: &str = "## graphify-rs";
 
 const AGENTS_MD_MARKER: &str = "## graphify-rs";
+
+const COPILOT_MD_MARKER: &str = "## graphify-rs";
+
+const VSCODE_MD_MARKER: &str = "## graphify-rs";
+
+const VSCODE_INSTRUCTIONS_FILE: &str = ".vscode/graphify-rs-instructions.md";
 
 /// Check all known skill install locations for stale versions.
 /// Call this on startup (before executing any subcommand).
@@ -306,6 +326,74 @@ pub fn opencode_uninstall(project_root: &Path) -> Result<()> {
     println!("  Cleaned {}", config_path.display());
 
     println!("\n  OpenCode integration uninstalled.");
+    Ok(())
+}
+
+/// `graphify-rs copilot install` — writes graphify-rs section into
+/// `.github/copilot-instructions.md`, the repo-wide instructions file that
+/// GitHub Copilot Chat reads.
+pub fn copilot_install(project_root: &Path) -> Result<()> {
+    let output_dir = crate::paths::resolve_default_output(project_root)
+        .to_string_lossy()
+        .to_string();
+    let instructions = project_root.join(".github/copilot-instructions.md");
+    append_section(
+        &instructions,
+        &graph_md_section(&output_dir),
+        COPILOT_MD_MARKER,
+    )?;
+    println!("  Updated {}", instructions.display());
+
+    println!("\n  GitHub Copilot integration installed.");
+    Ok(())
+}
+
+/// `graphify-rs copilot uninstall`
+pub fn copilot_uninstall(project_root: &Path) -> Result<()> {
+    let instructions = project_root.join(".github/copilot-instructions.md");
+    remove_section(&instructions, COPILOT_MD_MARKER)?;
+    println!("  Cleaned {}", instructions.display());
+
+    println!("\n  GitHub Copilot integration uninstalled.");
+    Ok(())
+}
+
+/// `graphify-rs vscode install` — writes a dedicated instructions file under
+/// `.vscode/` and registers it with the VSCode Copilot Chat settings so it is
+/// pulled into every prompt.
+pub fn vscode_install(project_root: &Path) -> Result<()> {
+    let output_dir = crate::paths::resolve_default_output(project_root)
+        .to_string_lossy()
+        .to_string();
+    let instructions = project_root.join(VSCODE_INSTRUCTIONS_FILE);
+    append_section(
+        &instructions,
+        &graph_md_section(&output_dir),
+        VSCODE_MD_MARKER,
+    )?;
+    println!("  Updated {}", instructions.display());
+
+    let settings_path = project_root.join(".vscode/settings.json");
+    write_vscode_settings_hook(&settings_path)?;
+    println!("  Wrote instructions reference to {}", settings_path.display());
+
+    println!("\n  VSCode integration installed.");
+    Ok(())
+}
+
+/// `graphify-rs vscode uninstall`
+pub fn vscode_uninstall(project_root: &Path) -> Result<()> {
+    let instructions = project_root.join(VSCODE_INSTRUCTIONS_FILE);
+    if instructions.exists() {
+        remove_section(&instructions, VSCODE_MD_MARKER)?;
+        println!("  Cleaned {}", instructions.display());
+    }
+
+    let settings_path = project_root.join(".vscode/settings.json");
+    remove_vscode_settings_hook(&settings_path)?;
+    println!("  Cleaned {}", settings_path.display());
+
+    println!("\n  VSCode integration uninstalled.");
     Ok(())
 }
 
@@ -678,6 +766,71 @@ fn unregister_opencode_config(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Register the graphify-rs instructions file with VSCode Copilot Chat.
+///
+/// VSCode Copilot reads `github.copilot.chat.codeGeneration.instructions` and
+/// merges the referenced file into every prompt. We append (not replace) so an
+/// existing user configuration is preserved.
+fn write_vscode_settings_hook(path: &Path) -> Result<()> {
+    let mut settings: serde_json::Value = if path.exists() {
+        let content = fs::read_to_string(path)?;
+        serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let entry = serde_json::json!({ "file": VSCODE_INSTRUCTIONS_FILE });
+    let instructions = settings
+        .as_object_mut()
+        .context("settings is not an object")?
+        .entry("github.copilot.chat.codeGeneration.instructions")
+        .or_insert_with(|| serde_json::json!([]));
+
+    let arr = instructions
+        .as_array_mut()
+        .context("github.copilot.chat.codeGeneration.instructions is not an array")?;
+
+    let already = arr.iter().any(|v| {
+        v.get("file").and_then(|f| f.as_str()) == Some(VSCODE_INSTRUCTIONS_FILE)
+    });
+    if !already {
+        arr.push(entry);
+    }
+
+    let output = serde_json::to_string_pretty(&settings)?;
+    fs::write(path, output)?;
+    Ok(())
+}
+
+/// Remove the graphify-rs instructions entry from `.vscode/settings.json`.
+fn remove_vscode_settings_hook(path: &Path) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+
+    let content = fs::read_to_string(path)?;
+    let mut settings: serde_json::Value =
+        serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}));
+
+    if let Some(instructions) =
+        settings.get_mut("github.copilot.chat.codeGeneration.instructions")
+    {
+        if let Some(arr) = instructions.as_array_mut() {
+            arr.retain(|v| {
+                v.get("file").and_then(|f| f.as_str()) != Some(VSCODE_INSTRUCTIONS_FILE)
+            });
+        }
+    }
+
+    let output = serde_json::to_string_pretty(&settings)?;
+    fs::write(path, output)?;
+    Ok(())
+}
+
 /// Needle identifying graphify-rs content inside generated JSON/JS configs.
 const GRAPHIFY_TRACE: &str = "graphify-rs";
 
@@ -743,6 +896,16 @@ fn integrations() -> Vec<Integration> {
             detect: agents_md_present,
             remove: |root| generic_platform_uninstall(root, "Trae CN"),
         },
+        Integration {
+            label: "GitHub Copilot",
+            detect: copilot_present,
+            remove: copilot_uninstall,
+        },
+        Integration {
+            label: "VSCode",
+            detect: vscode_present,
+            remove: vscode_uninstall,
+        },
     ]
 }
 
@@ -779,6 +942,20 @@ fn opencode_present(project_root: &Path) -> bool {
             .join(".opencode/plugins/graphify-rs.js")
             .exists()
         || file_contains(&project_root.join("opencode.json"), GRAPHIFY_TRACE)
+}
+
+fn copilot_present(project_root: &Path) -> bool {
+    file_contains(
+        &project_root.join(".github/copilot-instructions.md"),
+        COPILOT_MD_MARKER,
+    )
+}
+
+fn vscode_present(project_root: &Path) -> bool {
+    file_contains(
+        &project_root.join(VSCODE_INSTRUCTIONS_FILE),
+        VSCODE_MD_MARKER,
+    ) || file_contains(&project_root.join(".vscode/settings.json"), GRAPHIFY_TRACE)
 }
 
 /// Remove graphify-rs integration from every supported agent platform.

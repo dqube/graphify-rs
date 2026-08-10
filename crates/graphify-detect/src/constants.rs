@@ -10,10 +10,17 @@ pub const CODE_EXTENSIONS: &[&str] = &[
     ".sql", ".f", ".f90", ".f95", ".f03", ".f08", ".pas", ".pp", ".dpr", ".dpk", ".lpr",
     ".cls", ".trigger", ".tf", ".tfvars", ".hcl", ".sh", ".bash", ".json", ".sln", ".csproj",
     ".fsproj", ".vbproj", ".xaml", ".razor", ".cshtml", ".dm", ".dme", ".dmm",
+    // Phase 3 variants: JS/TS module flavours, Luau, PowerShell modules/data,
+    // Pascal include + Delphi Forms, XML-based Solution file.
+    ".mts", ".cts", ".mjs", ".luau", ".psm1", ".psd1", ".inc", ".dfm", ".lfm", ".slnx",
 ];
 
 /// Documentation file extensions.
-pub const DOC_EXTENSIONS: &[&str] = &[".md", ".txt", ".rst"];
+pub const DOC_EXTENSIONS: &[&str] = &[
+    ".md", ".txt", ".rst",
+    // Phase 3: JSX-flavoured markdown, Quarto, YAML config/data.
+    ".mdx", ".qmd", ".yaml", ".yml",
+];
 
 /// Academic paper extensions.
 pub const PAPER_EXTENSIONS: &[&str] = &[".pdf"];

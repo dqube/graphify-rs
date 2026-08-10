@@ -160,7 +160,7 @@ fn entries_word(n: usize) -> &'static str {
 }
 
 /// Group digits so five- and six-figure node counts stay readable.
-fn thousands(n: usize) -> String {
+pub(crate) fn thousands(n: usize) -> String {
     let digits = n.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (i, ch) in digits.chars().enumerate() {

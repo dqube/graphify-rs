@@ -185,7 +185,7 @@ Behavior notes:
 
 ### Operational commands
 
-Twelve commands that manage the graph, the toolchain, and the integrations around them.
+Fourteen commands that manage the graph, the toolchain, and the integrations around them.
 
 | Command | Purpose | Key flags |
 |---------|---------|-----------|
@@ -198,6 +198,8 @@ Twelve commands that manage the graph, the toolchain, and the integrations aroun
 | `clone` | `git clone` a repository and build its graph. Refuses to clobber a non-empty destination; rejects URLs that could be read as git flags or as the `ext::` command transport. | `--no-build` |
 | `extract` | Extraction only — no clustering, analysis, or export. JSON to stdout (counts go to stderr, so piping stays clean) or to `--output`. | `--path`, `--output` |
 | `merge-graphs` | Combine two or more graphs. Each input is namespaced by its repo directory so same-named symbols from different repos stay distinct. | `--output` |
+| `merge-chunks` | Combine the extraction JSON that parallel semantic subagents write, deduplicating nodes by `id` (first writer wins) and totalling their token counts. Best-effort: an unreadable chunk is reported and skipped rather than losing every other chunk, and the summary says how many were skipped. | `--output` |
+| `merge-semantic` | Combine a cached extraction result with a fresh one. Cached nodes win on conflict, so a re-extraction cannot overwrite a settled answer. A missing input is empty; a corrupt one is fatal. | `--cached`, `--new`, `--output` |
 | `merge-driver` | Git merge driver for `graph.json`. Prefers a clean union over conflict markers, since the file is generated. Invoked by git, not by hand — see below. | (git passes `%O %A %B`) |
 | `hook check` / `hook guard` | Verify installed hooks are present, executable, and current / pre-commit guard reporting whether the graph is stale relative to staged files. The guard fails open and cannot stall a commit. | |
 | `uninstall` | Remove graphify-rs integration from every agent platform and the git hooks. Platforms that were never installed are skipped, and one failure does not abort the rest. | |
@@ -214,6 +216,20 @@ Then, in a committed `.gitattributes`:
 ```text
 graphify-out/graph.json merge=graphify
 ```
+
+Fanning semantic extraction out across subagents, then folding the results back in:
+
+```bash
+# Each subagent writes its own chunk, so they never contend on one file.
+graphify-rs merge-chunks 'graphify-rs-out/.graphify_chunk_*.json' --output fresh.json
+
+# Fold that into whatever was already extracted; cached nodes win on conflict.
+graphify-rs merge-semantic --cached cached.json --new fresh.json --output extraction.json
+```
+
+Both read and write the `{nodes, edges, hyperedges}` shape that `extract` emits, and both pass unknown fields through untouched — a chunk's `input_tokens`, or any field a future writer adds, survives the merge. Quote the glob so the tool expands it: wildcards apply to the final path component only, and, as in the shell, `*` does not match a leading dot.
+
+Edges and hyperedges are concatenated rather than deduplicated. They carry no stable identity of their own, and the graph builder already dedups them downstream.
 
 Recording outcomes so `reflect` has something to work with:
 

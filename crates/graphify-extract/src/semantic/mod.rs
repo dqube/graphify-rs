@@ -16,9 +16,13 @@ use anyhow::{Context, Result};
 use graphify_core::confidence::Confidence;
 use graphify_core::id::make_id;
 use graphify_core::model::{ExtractionResult, GraphEdge, GraphNode, NodeType};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 pub use provider::{AuthType, LLMConfigRaw, LLMProvider, LLMProviderConfig};
+
+/// Wall-clock ceiling on one plain-text completion, in seconds.
+const COMPLETION_TIMEOUT_SECS: u64 = 120;
 
 /// Entities and relationships extracted by the LLM.
 #[derive(Deserialize, Debug)]
@@ -196,6 +200,132 @@ fn extract_json_block(text: &str) -> &str {
         return &text[start..=end];
     }
     text.trim()
+}
+
+// ── Plain text completion ─────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+struct ChatMessage {
+    role: &'static str,
+    content: String,
+}
+
+#[derive(Serialize)]
+struct ChatRequest {
+    model: String,
+    max_tokens: u32,
+    messages: Vec<ChatMessage>,
+}
+
+#[derive(Deserialize)]
+struct ChatResponse {
+    choices: Vec<ChatChoice>,
+}
+
+#[derive(Deserialize)]
+struct ChatChoice {
+    message: ChatChoiceMessage,
+}
+
+#[derive(Deserialize)]
+struct ChatChoiceMessage {
+    content: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct AnthropicResponse {
+    content: Vec<AnthropicBlock>,
+}
+
+#[derive(Deserialize)]
+struct AnthropicBlock {
+    text: Option<String>,
+}
+
+/// Send one prompt and return the raw completion text.
+///
+/// This is a plain text-in/text-out call, deliberately separate from
+/// [`extract_semantic`]: the extractor's clients parse their reply into an
+/// [`ExtractionResult`], so callers that want prose (community naming, PR
+/// triage) cannot reuse them. Only the provider *configuration* — endpoint,
+/// credentials, auth style — is shared, and it lives here so those callers do
+/// not each grow their own copy of the HTTP plumbing.
+pub async fn complete_text(
+    prompt: &str,
+    max_tokens: u32,
+    config: &LLMProviderConfig,
+) -> Result<String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(COMPLETION_TIMEOUT_SECS))
+        .build()?;
+
+    match config.provider {
+        LLMProvider::Anthropic => {
+            let body = json!({
+                "model": config.model,
+                "max_tokens": max_tokens,
+                "messages": [{ "role": "user", "content": prompt }],
+            });
+            let mut request = client
+                .post(format!("{}/v1/messages", config.base_url))
+                .header("anthropic-version", "2023-06-01")
+                .header("content-type", "application/json")
+                .json(&body);
+            let key = config.api_key.as_deref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "No credentials for Anthropic. Set ANTHROPIC_API_KEY, run `claude login`, \
+                     or configure [llm] in graphify-rs.toml"
+                )
+            })?;
+            request = match config.auth_type {
+                AuthType::ApiKey => request.header("x-api-key", key),
+                AuthType::Bearer => request.header("authorization", format!("Bearer {key}")),
+            };
+
+            let response = request.send().await?;
+            let status = response.status();
+            if !status.is_success() {
+                let body = response.text().await.unwrap_or_default();
+                anyhow::bail!("Anthropic API returned {status}: {body}");
+            }
+            let parsed: AnthropicResponse = response.json().await?;
+            Ok(parsed
+                .content
+                .into_iter()
+                .find_map(|b| b.text)
+                .unwrap_or_default())
+        }
+        LLMProvider::OpenAI | LLMProvider::Ollama | LLMProvider::OpenAICompatible => {
+            let body = ChatRequest {
+                model: config.model.clone(),
+                max_tokens,
+                messages: vec![ChatMessage {
+                    role: "user",
+                    content: prompt.to_string(),
+                }],
+            };
+            let mut request = client
+                .post(format!("{}/chat/completions", config.base_url))
+                .header("content-type", "application/json")
+                .json(&body);
+            if let Some(key) = config.api_key.as_deref() {
+                request = request.header("authorization", format!("Bearer {key}"));
+            }
+
+            let response = request.send().await?;
+            let status = response.status();
+            if !status.is_success() {
+                let body = response.text().await.unwrap_or_default();
+                anyhow::bail!("LLM API at {} returned {status}: {body}", config.base_url);
+            }
+            let parsed: ChatResponse = response.json().await?;
+            Ok(parsed
+                .choices
+                .into_iter()
+                .find_map(|c| c.message.content)
+                .unwrap_or_default())
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1060,3 +1060,27 @@ fn cross_file_calls_no_edges_without_uses() {
         "should not create calls edges without uses edges"
     );
 }
+
+#[test]
+fn language_for_path_maps_phase3_variants() {
+    use std::path::PathBuf;
+    let cases: &[(&str, &str)] = &[
+        ("foo.mts", "typescript"),
+        ("foo.cts", "typescript"),
+        ("foo.mjs", "javascript"),
+        ("foo.luau", "lua"),
+        ("foo.psm1", "powershell"),
+        ("foo.psd1", "powershell"),
+        ("foo.inc", "pascal"),
+        ("foo.dfm", "pascal_form"),
+        ("foo.lfm", "pascal_form"),
+        ("foo.slnx", "dotnet_proj"),
+    ];
+    for (name, expected) in cases {
+        assert_eq!(
+            language_for_path(&PathBuf::from(name)),
+            Some(*expected),
+            "expected {expected} for {name}"
+        );
+    }
+}

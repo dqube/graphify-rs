@@ -98,6 +98,17 @@ pub const DISPATCH: &[(&str, &str)] = &[
     (".dm", "dm"),
     (".dme", "dm"),
     (".dmm", "dm"),
+    // Phase 3 variants.
+    (".mts", "typescript"),
+    (".cts", "typescript"),
+    (".mjs", "javascript"),
+    (".luau", "lua"),
+    (".psm1", "powershell"),
+    (".psd1", "powershell"),
+    (".inc", "pascal"),
+    (".dfm", "pascal_form"),
+    (".lfm", "pascal_form"),
+    (".slnx", "dotnet_proj"),
 ];
 
 /// Build a hashmap for fast extension lookup (cached).
@@ -108,7 +119,16 @@ fn dispatch_map() -> &'static HashMap<&'static str, &'static str> {
 }
 
 /// Return the language name for a file extension (e.g. `".py"` → `"python"`).
+///
+/// Compound extensions that the single-extension dispatch map cannot express
+/// (currently `.blade.php`) are handled first, so Laravel Blade templates
+/// route to their dedicated extractor instead of falling through to plain PHP.
 pub fn language_for_path(path: &Path) -> Option<&'static str> {
+    if let Some(name) = path.file_name().and_then(|n| n.to_str())
+        && name.to_ascii_lowercase().ends_with(".blade.php")
+    {
+        return Some("blade");
+    }
     let ext = path.extension()?.to_str()?;
     dispatch_map().get(&*format!(".{ext}")).copied()
 }
