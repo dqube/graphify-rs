@@ -38,7 +38,11 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
           - target: x86_64-apple-darwin
-            os: macos-13
+            # Cross-compiled from the Apple Silicon runner rather than built
+            # natively on macos-13: those runners can sit queued indefinitely,
+            # and the whole release blocks on them. macOS ships SDKs for both
+            # architectures, so this produces a genuine x86_64 Mach-O binary.
+            os: macos-latest
           - target: x86_64-unknown-linux-gnu
             # 22.04 rather than latest: links against glibc 2.35, so the
             # binary also runs on Debian 12, RHEL 9, and Ubuntu 22.04+.
