@@ -191,14 +191,39 @@ pub fn transcribe(media_path: &Path, config: &MediaConfig) -> Result<Option<Tran
     }))
 }
 
+/// Build the shell invocation for a user-supplied `GRAPHIFY_WHISPER_CMD`,
+/// ready for the media path to be appended as the final argument.
+///
+/// The variable holds a command fragment rather than a bare program, so it
+/// has to go through a shell — but the shell is platform-specific. Windows
+/// needs `cmd /C` rather than a POSIX `sh -c`: a native path such as
+/// `C:\Users\me\whisper.bat` interpolated into an `sh` command string has
+/// its backslashes eaten as escapes, leaving `C:Usersmewhisper.bat` and a
+/// "command not found" that points nowhere obvious.
+#[cfg(windows)]
+fn custom_shell_command(cmd: &str) -> Command {
+    let mut command = Command::new("cmd");
+    command.arg("/C").arg(cmd);
+    command
+}
+
+#[cfg(not(windows))]
+fn custom_shell_command(cmd: &str) -> Command {
+    let mut command = Command::new("sh");
+    // "$1" keeps the media path one argument however it is spelled, and
+    // naming $0 makes any shell error read as graphify's rather than sh's.
+    command
+        .arg("-c")
+        .arg(format!("{cmd} \"$1\""))
+        .arg("graphify-media");
+    command
+}
+
 /// Run one transcription with a specific backend.
 fn run_transcriber(transcriber: &Transcriber, media_path: &Path) -> Result<String> {
     match transcriber {
         Transcriber::Custom(cmd) => {
-            let output = Command::new("sh")
-                .arg("-c")
-                .arg(format!("{} \"$1\"", cmd))
-                .arg("graphify-media")
+            let output = custom_shell_command(cmd)
                 .arg(media_path)
                 .output()
                 .with_context(|| format!("failed to run GRAPHIFY_WHISPER_CMD ({cmd})"))?;
@@ -312,23 +337,43 @@ mod tests {
     /// Serializes tests that mutate process env (PATH, GRAPHIFY_WHISPER_CMD).
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
+    /// Take the env lock, tolerating a lock poisoned by an earlier failure.
+    ///
+    /// The guarded value is `()`, so a panicking test leaves nothing corrupt
+    /// behind. Recovering matters because `.unwrap()` here turns one real
+    /// failure into a `PoisonError` in every later test, burying the error
+    /// that actually needs reading.
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// Write an executable stub script that prints a fixed transcript.
+    ///
+    /// The script has to be in the host shell's language, since
+    /// `GRAPHIFY_WHISPER_CMD` is dispatched through `cmd /C` on Windows and
+    /// `sh -c` everywhere else.
     fn make_stub_whisper(dir: &Path, transcript: &str) -> PathBuf {
-        let script = dir.join("stub-whisper.sh");
-        std::fs::write(&script, format!("#!/bin/sh\necho '{transcript}'\n")).unwrap();
-        #[cfg(unix)]
+        #[cfg(windows)]
         {
+            let script = dir.join("stub-whisper.bat");
+            std::fs::write(&script, format!("@echo off\r\necho {transcript}\r\n")).unwrap();
+            script
+        }
+        #[cfg(not(windows))]
+        {
+            let script = dir.join("stub-whisper.sh");
+            std::fs::write(&script, format!("#!/bin/sh\necho '{transcript}'\n")).unwrap();
             use std::os::unix::fs::PermissionsExt;
             let mut perms = std::fs::metadata(&script).unwrap().permissions();
             perms.set_mode(0o755);
             std::fs::set_permissions(&script, perms).unwrap();
+            script
         }
-        script
     }
 
     #[test]
     fn custom_cmd_transcribes_and_caches() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         let stub = make_stub_whisper(tmp.path(), "hello world transcript");
         // SAFETY: test-only env mutation, serialized via ENV_LOCK.
@@ -361,7 +406,7 @@ mod tests {
 
     #[test]
     fn no_backend_returns_none() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = env_lock();
         let tmp = tempfile::tempdir().unwrap();
         let media = tmp.path().join("clip.mp3");
         std::fs::write(&media, b"fake audio bytes").unwrap();
