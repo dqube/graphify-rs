@@ -85,20 +85,51 @@ installers verify automatically.
 
 ## Quick Start
 
+Run this from the root of any project you want to understand.
+
 ```bash
-# Build a knowledge graph (free, fast, no API key needed)
-graphify-rs build --no-llm
+# 1. Build a knowledge graph — free, fast, no API key needed
+cd /path/to/your/project
+graphify-rs build --no-llm --format json,report,html
 
-# Explore interactively (output is at ~/.graphify-rs/<project>-<hash>/)
-open "$(ls -d ~/.graphify-rs/*graphify* | head -1)/graph.html"
+# 2. Explore it. Everything lands in ./graphify-rs-out/
+open      graphify-rs-out/graph.html   # macOS
+xdg-open  graphify-rs-out/graph.html   # Linux
+start     graphify-rs-out\graph.html   # Windows
 
-# Query the graph
+# 3. Ask questions
 graphify-rs query "how does auth work?"
+graphify-rs explain "UserService"          # one node, its neighbours, its community
+graphify-rs path "login" "database"        # how two things connect
 
-# (Optional) Add semantic extraction via LLM
-export ANTHROPIC_API_KEY=sk-...   # or configure [llm] in graphify-rs.toml
-graphify-rs build
+# 4. Keep it current after you change code (AST-only, no API cost)
+graphify-rs update .
 ```
+
+**What you get in `graphify-rs-out/`**
+
+| File | Produced by |
+|---|---|
+| `graph.json` | default — the graph itself, for scripting or other tools |
+| `GRAPH_REPORT.md` | default — god nodes, communities, surprising connections |
+| `graph.html` | `--format …,html` — interactive map: search, click to inspect, filter by community |
+
+`build` writes **`json,report`** unless you pass `--format`, so ask for `html`
+explicitly when you want the visualization. `callflow-html` adds a call-flow
+diagram and `tree` a collapsible file tree.
+
+<details>
+<summary>Optional: richer graphs via an LLM</summary>
+
+Everything above is deterministic and free. An LLM adds semantic concepts
+extracted from docs, papers, and images, and names the communities.
+
+```bash
+export ANTHROPIC_API_KEY=sk-...   # or configure [llm] in graphify-rs.toml
+graphify-rs build                 # drop --no-llm
+```
+
+</details>
 
 ## Performance
 

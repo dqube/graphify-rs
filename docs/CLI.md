@@ -4,6 +4,7 @@
 
 ## Table of Contents
 
+- [Installation](#installation)
 - [Global Flags](#global-flags)
 - [Commands](#commands)
   - [build](#graphify-rs-build) — Build knowledge graph
@@ -26,8 +27,145 @@
   - [completions](#graphify-rs-completions) — Shell completions
   - [benchmark](#graphify-rs-benchmark) — Token efficiency
   - [affected](#graphify-rs-affected) — Test impact analysis
-- [Configuration](#configuration-graphifytoml)
+- [Configuration](#configuration-graphify-rstoml)
 - [Agent Integration](#agent-integration)
+
+## Installation
+
+The installers download a prebuilt binary from GitHub Releases. No Rust
+toolchain is needed on the target machine.
+
+**macOS / Linux**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dqube/graphify-rs/main/install.sh | sh
+```
+
+**Windows (PowerShell)**
+
+```powershell
+irm https://raw.githubusercontent.com/dqube/graphify-rs/main/install.ps1 | iex
+```
+
+The binary lands in `~/.local/bin` (Unix) or `%LOCALAPPDATA%\graphify-rs\bin`
+(Windows). The Windows installer adds that directory to your user `PATH`; on
+Unix the installer prints the line to add if the directory is not already on
+yours.
+
+Verify with:
+
+```bash
+graphify-rs --version
+```
+
+### Installer options
+
+Both installers read the same environment variables.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `GRAPHIFY_VERSION` | latest release | Install a specific tag, e.g. `v0.8.2` |
+| `GRAPHIFY_INSTALL_DIR` | `~/.local/bin` / `%LOCALAPPDATA%\graphify-rs\bin` | Where the binary goes |
+| `GRAPHIFY_REPO` | `dqube/graphify-rs` | Pull releases from a fork |
+| `GRAPHIFY_BASE_URL` | GitHub release URL | Download root, for mirrors and offline installs (`install.sh` only) |
+
+```bash
+# Pin a version and install system-wide
+GRAPHIFY_VERSION=v0.8.2 GRAPHIFY_INSTALL_DIR=/usr/local/bin \
+  sh -c "$(curl -fsSL https://raw.githubusercontent.com/dqube/graphify-rs/main/install.sh)"
+```
+
+```powershell
+$env:GRAPHIFY_VERSION = 'v0.8.2'
+$env:GRAPHIFY_INSTALL_DIR = 'C:\tools\graphify'
+irm https://raw.githubusercontent.com/dqube/graphify-rs/main/install.ps1 | iex
+```
+
+Every release publishes a `SHA256SUMS` file, and both installers verify the
+archive against it before installing. A mismatch aborts the install rather
+than running the download.
+
+### Other install methods
+
+```bash
+cargo install graphify-rs                              # from crates.io (needs Rust)
+cargo install --git https://github.com/dqube/graphify-rs  # from source
+```
+
+Or download an archive from [Releases](https://github.com/dqube/graphify-rs/releases)
+and put the binary on your `PATH` yourself.
+
+### Supported platforms
+
+| Platform | Target triple |
+|---|---|
+| macOS (Apple Silicon) | `aarch64-apple-darwin` |
+| macOS (Intel) | `x86_64-apple-darwin` |
+| Linux x86-64 | `x86_64-unknown-linux-gnu` |
+| Linux ARM64 | `aarch64-unknown-linux-gnu` |
+| Windows x64 | `x86_64-pc-windows-msvc` |
+
+Linux binaries are built against glibc 2.35, so they run on Ubuntu 22.04+,
+Debian 12+, RHEL 9+, and Fedora 36+. Windows on ARM runs the x64 binary under
+emulation.
+
+### Upgrading and uninstalling
+
+Re-run the installer to upgrade — it overwrites in place:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dqube/graphify-rs/main/install.sh | sh
+```
+
+To uninstall, delete the binary. `graphify-rs uninstall` is a different
+thing: it removes graphify's *integration* from your agent platforms
+(CLAUDE.md, AGENTS.md, hooks), not the binary itself.
+
+```bash
+rm ~/.local/bin/graphify-rs                                    # Unix
+Remove-Item "$env:LOCALAPPDATA\graphify-rs\bin\graphify-rs.exe" # Windows
+```
+
+---
+
+## First run
+
+```bash
+cd /path/to/your/project
+graphify-rs build --no-llm     # deterministic, free, no API key
+```
+
+Output is written to **`./graphify-rs-out/`** in the project directory:
+
+| File | Produced by |
+|---|---|
+| `graph.json` | default — the graph (NetworkX `node_link_data` shape) |
+| `GRAPH_REPORT.md` | default — god nodes, communities, surprising connections |
+| `cache/`, `changeindex.json` | default — extraction cache, makes re-builds fast |
+| `graph.html` | `--format …,html` — interactive visualization |
+| `callflow.html`, `tree.html` | `--format …,callflow-html,tree` |
+
+`build` defaults to **`json,report`**. Anything else, including the HTML
+visualization, has to be requested through [`--format`](#graphify-rs-build):
+
+```bash
+graphify-rs build --no-llm --format json,report,html
+```
+
+Then explore:
+
+```bash
+graphify-rs query "how does auth work?"   # scoped subgraph for a question
+graphify-rs explain "UserService"          # one node in context
+graphify-rs path "login" "database"        # how two nodes connect
+graphify-rs stats                          # size, density, top communities
+graphify-rs update .                       # refresh after code changes
+```
+
+`~/.graphify-rs/` is unrelated to build output — it holds the optional
+cross-project graph managed by [`graphify-rs global`](#graphify-rs-global).
+
+---
 
 ## Global Flags
 
