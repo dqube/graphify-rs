@@ -626,7 +626,7 @@ pub fn deduplicate_entities(
         }
         norm_groups.entry(key).or_default().push(i);
     }
-    for (_key, indices) in norm_groups.iter() {
+    for indices in norm_groups.values() {
         if indices.len() < 2 {
             continue;
         }
@@ -777,7 +777,7 @@ pub fn deduplicate_entities(
     let mut remap: HashMap<String, String> = HashMap::new();
     let id_to_node: HashMap<&str, &GraphNode> =
         unique_nodes.iter().map(|n| (n.id.as_str(), n)).collect();
-    for (_root, members) in components.iter_mut() {
+    for members in components.values_mut() {
         if members.len() < 2 {
             continue;
         }

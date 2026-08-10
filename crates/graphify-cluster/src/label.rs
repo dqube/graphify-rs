@@ -388,7 +388,7 @@ pub fn parse_label_response(text: &str, cids: &[usize]) -> anyhow::Result<BTreeM
     if pairs.is_empty() {
         anyhow::bail!(
             "label response is not parseable JSON: {:?}",
-            &text.chars().take(120).collect::<String>()
+            text.chars().take(120).collect::<String>()
         );
     }
 
