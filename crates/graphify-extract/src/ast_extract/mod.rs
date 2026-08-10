@@ -26,6 +26,8 @@ mod java;
 mod js_ts;
 mod json;
 mod kotlin;
+mod manifest;
+mod mcp_config;
 mod metal;
 mod pascal;
 mod pascal_form;
@@ -33,6 +35,7 @@ mod projfiles;
 mod python;
 mod ruby;
 mod rust;
+mod scip;
 mod shell;
 mod sql;
 mod verilog;
@@ -190,6 +193,9 @@ pub fn extract_file(path: &Path, source: &str, lang: &str) -> ExtractionResult {
         "verilog" => verilog::extract_verilog(path, source),
         "dm" => dm::extract_dm(path, source),
         "json" => json::extract_json(path, source),
+        "mcp_config" => mcp_config::extract_mcp_config(path, source),
+        "scip" => scip::extract_scip(path, source),
+        "package_manifest" => manifest::extract_package_manifest(path, source),
         "dotnet_proj" => projfiles::extract_dotnet_proj(path, source),
         _ => generic::extract_generic(path, source, lang),
     }

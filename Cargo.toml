@@ -126,6 +126,11 @@ anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 dirs = "5"
+# --postgres schema introspection. native-tls is already in the tree via
+# reqwest, so TLS support costs one thin bridge crate rather than a new stack.
+tokio-postgres = "0.7"
+postgres-native-tls = "0.5"
+native-tls = "0.2"
 indicatif = "0.17"
 colored = "2"
 clap_complete.workspace = true

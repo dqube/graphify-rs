@@ -7,7 +7,9 @@
 pub mod changeindex;
 pub mod classify;
 pub mod constants;
+pub mod google_workspace;
 pub mod ignore;
+pub mod office;
 pub mod sensitive;
 
 use std::collections::HashMap;
@@ -20,7 +22,11 @@ use tracing::{debug, info, warn};
 use walkdir::WalkDir;
 
 pub use classify::{DetectedFile, FileType, classify_file};
+pub use google_workspace::{
+    convert_google_workspace_file, find_shortcuts, google_workspace_enabled,
+};
 pub use ignore::load_graphifyignore;
+pub use office::{is_office_path, office_to_markdown};
 pub use sensitive::is_sensitive;
 
 use constants::{CORPUS_UPPER_THRESHOLD, CORPUS_WARN_THRESHOLD, FILE_COUNT_UPPER, SKIP_DIRS};
@@ -341,8 +347,8 @@ fn entry_words_and_hash(
                     let h = graphify_cache::file_hash(path).unwrap_or_default();
                     return if h == e.hash { (e.words, h) } else { (0, h) };
                 }
-                _ => match fs::read_to_string(path) {
-                    Ok(content) => {
+                _ => match read_indexable_text(path) {
+                    Some(content) => {
                         let h = graphify_cache::content_hash(content.as_bytes());
                         return if h == e.hash {
                             (e.words, h)
@@ -350,7 +356,7 @@ fn entry_words_and_hash(
                             (content.split_whitespace().count() as u64, h)
                         };
                     }
-                    Err(_) => {
+                    None => {
                         let h = graphify_cache::file_hash(path).unwrap_or_default();
                         return (0, h);
                     }
@@ -361,12 +367,12 @@ fn entry_words_and_hash(
     // New file, size changed, or meta unavailable → compute fresh.
     match file_type {
         FileType::Image | FileType::Media => (0, graphify_cache::file_hash(path).unwrap_or_default()),
-        _ => match fs::read_to_string(path) {
-            Ok(content) => {
+        _ => match read_indexable_text(path) {
+            Some(content) => {
                 let h = graphify_cache::content_hash(content.as_bytes());
                 (content.split_whitespace().count() as u64, h)
             }
-            Err(_) => (0, graphify_cache::file_hash(path).unwrap_or_default()),
+            None => (0, graphify_cache::file_hash(path).unwrap_or_default()),
         },
     }
 }
@@ -375,9 +381,21 @@ fn entry_words_and_hash(
 ///
 /// Returns 0 for files that can't be read as UTF-8 (binary, PDF, etc.).
 fn count_words(path: &Path) -> usize {
-    match fs::read_to_string(path) {
-        Ok(content) => content.split_whitespace().count(),
-        Err(_) => 0,
+    match read_indexable_text(path) {
+        Some(content) => content.split_whitespace().count(),
+        None => 0,
+    }
+}
+
+/// Text of a file as the rest of the pipeline should see it.
+///
+/// Office documents are zip archives, so reading them as UTF-8 fails outright;
+/// they are converted to markdown first. Everything else is read as-is.
+fn read_indexable_text(path: &Path) -> Option<String> {
+    if office::is_office_path(path) {
+        office::office_to_markdown(path)
+    } else {
+        fs::read_to_string(path).ok()
     }
 }
 

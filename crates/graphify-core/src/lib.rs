@@ -2,6 +2,7 @@ pub mod confidence;
 pub mod error;
 pub mod graph;
 pub mod id;
+pub mod manifests;
 pub mod model;
 
 use std::collections::HashMap;

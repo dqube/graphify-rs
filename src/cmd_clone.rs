@@ -237,6 +237,9 @@ async fn build_fresh_checkout(dest: &Path) -> Result<()> {
         None,  // neo4j_conn
         None,  // media_model
         None,  // dedup_llm
+        false, // cargo
+        None,  // postgres
+        false, // google_workspace
     )
     .await
 }

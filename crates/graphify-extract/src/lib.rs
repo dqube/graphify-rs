@@ -8,6 +8,7 @@
 //!   from documents, papers, and images.
 
 pub mod ast_extract;
+pub mod cargo_introspect;
 pub mod dedup;
 pub mod lang_config;
 pub mod markdown_links;
@@ -129,8 +130,36 @@ pub fn language_for_path(path: &Path) -> Option<&'static str> {
     {
         return Some("blade");
     }
+    if let Some(lang) = filename_language(path) {
+        return Some(lang);
+    }
     let ext = path.extension()?.to_str()?;
     dispatch_map().get(&*format!(".{ext}")).copied()
+}
+
+/// Languages selected by **filename** rather than extension.
+///
+/// Checked before the extension map so an MCP config routes to the MCP
+/// extractor instead of the generic `.json` one, and so extensions the
+/// dispatch map does not carry at all (`.mod`, `.toml`, `.xml` as manifests)
+/// still reach an extractor.
+fn filename_language(path: &Path) -> Option<&'static str> {
+    if graphify_core::manifests::is_mcp_config_path(path) {
+        return Some("mcp_config");
+    }
+    // A SCIP index is JSON, so it must be claimed before the generic `.json`
+    // extractor turns its top-level keys into meaningless module nodes.
+    if path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.to_ascii_lowercase().ends_with(".scip.json"))
+    {
+        return Some("scip");
+    }
+    if graphify_core::manifests::is_package_manifest_path(path) {
+        return Some("package_manifest");
+    }
+    None
 }
 
 /// Recursively collect all supported source files under `target`.
@@ -165,6 +194,8 @@ fn collect_files_inner(dir: &Path, map: &HashMap<&str, &str>, out: &mut Vec<Path
                 continue;
             }
             collect_files_inner(&path, map, out);
+        } else if filename_language(&path).is_some() {
+            out.push(path);
         } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
             let dotted = format!(".{ext}");
             if map.contains_key(dotted.as_str()) {

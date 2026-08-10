@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
 use std::path::{Path, PathBuf};
 
+mod cmd_add;
 mod cmd_build;
 mod cmd_clone;
 mod cmd_diagnose;
@@ -14,7 +15,9 @@ mod cmd_extract;
 mod cmd_global;
 mod cmd_label;
 mod cmd_merge;
+mod cmd_export;
 mod cmd_merge_chunks;
+mod cmd_update;
 mod cmd_path;
 mod cmd_provider;
 mod cmd_prs;
@@ -22,6 +25,7 @@ mod cmd_reflect;
 mod config;
 mod install;
 mod paths;
+mod pg_introspect;
 mod skill;
 
 #[derive(Parser)]
@@ -49,6 +53,21 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Fetch a URL into the corpus as markdown. Audio/video URLs are
+    /// downloaded and transcribed so the graph gets readable text.
+    Add {
+        /// URL to ingest (web page, arXiv, tweet, PDF, or audio/video)
+        url: String,
+        /// Directory to write the markdown into
+        #[arg(long, default_value = "raw")]
+        dir: String,
+        /// Download media without transcribing it
+        #[arg(long)]
+        no_transcribe: bool,
+        /// Whisper model override for transcription
+        #[arg(long)]
+        model: Option<String>,
+    },
     /// Build knowledge graph from files in a directory
     Build {
         #[arg(short, long, default_value = ".")]
@@ -71,7 +90,19 @@ enum Commands {
         /// Push the graph to a live Neo4j instance (config [neo4j] or NEO4J_* env vars)
         #[arg(long)]
         neo4j_push: bool,
-        /// Export formats (comma-separated). Available: json,html,callflow-html,tree,graphml,cypher,svg,rdf,falkordb,wiki,obsidian,report. Default: json,report
+        /// Add Cargo workspace crates and their internal dependency edges
+        #[arg(long)]
+        cargo: bool,
+        /// Introspect a live PostgreSQL schema. Pass a connection string, or
+        /// give the flag alone to use the standard PG* environment variables.
+        #[arg(long, value_name = "DSN", num_args = 0..=1, default_missing_value = "")]
+        postgres: Option<String>,
+        /// Export Google Workspace shortcuts (.gdoc/.gsheet/.gslides) via the
+        /// `gws` CLI. Off by default: it fetches content from Google using your
+        /// credentials. Also settable with GRAPHIFY_GOOGLE_WORKSPACE=1.
+        #[arg(long)]
+        google_workspace: bool,
+        /// Export formats (comma-separated). Available: json,html,split-html,callflow-html,tree,graphml,cypher,svg,rdf,falkordb,wiki,obsidian,report. Default: json,report
         #[arg(long, value_delimiter = ',')]
         format: Vec<String>,
         /// Maximum nodes in HTML visualization (default: 2000). Larger values may slow browser.
@@ -104,6 +135,24 @@ enum Commands {
         /// Path to graph.json (default: graphify-rs-out/graph.json)
         #[arg(long)]
         graph: Option<String>,
+    },
+    /// Re-render an existing graph in another format, without rebuilding it
+    Export(cmd_export::ExportArgs),
+    /// Render the collapsible D3 tree view of an existing graph
+    Tree(cmd_export::TreeArgs),
+    /// Re-extract code and rewrite the graph (AST only, no LLM, no API cost)
+    Update {
+        /// Directory to scan (default: the root recorded by the last build)
+        path: Option<String>,
+        /// Output directory (default: <root>/graphify-rs-out)
+        #[arg(short, long)]
+        output: Option<String>,
+        /// Overwrite graph.json even if the rebuild has fewer nodes
+        #[arg(long)]
+        force: bool,
+        /// Skip community detection
+        #[arg(long)]
+        no_cluster: bool,
     },
     /// Merge two or more graph.json files into one
     MergeGraphs {
@@ -190,7 +239,7 @@ enum Commands {
         #[arg(short, long)]
         output: Option<String>,
     },
-    /// Cross-project graph stored in ~/.graphify/
+    /// Cross-project graph stored in ~/.graphify-rs/
     Global {
         #[command(subcommand)]
         action: GlobalAction,
@@ -532,6 +581,9 @@ async fn main() -> Result<()> {
             cluster_only,
             mode,
             neo4j_push,
+            cargo,
+            postgres,
+            google_workspace,
             format,
             max_viz_nodes,
             dedup_llm,
@@ -586,8 +638,19 @@ async fn main() -> Result<()> {
                 neo4j_conn,
                 media_model,
                 dedup_llm,
+                cargo,
+                postgres,
+                google_workspace,
             )
             .await?;
+        }
+        Commands::Add {
+            url,
+            dir,
+            no_transcribe,
+            model,
+        } => {
+            cmd_add::cmd_add(&url, &dir, !no_transcribe, model, verb).await?;
         }
         Commands::Install { platform } => {
             install::install_skill(&platform)?;
@@ -609,6 +672,20 @@ async fn main() -> Result<()> {
         Commands::Label { graph } => {
             let graph_path = graph.unwrap_or_else(default_graph_path);
             cmd_label::cmd_label(&graph_path, config::load_config(Path::new(".")).llm).await?;
+        }
+        Commands::Export(args) => {
+            cmd_export::cmd_export(&args).await?;
+        }
+        Commands::Tree(args) => {
+            cmd_export::cmd_tree(&args)?;
+        }
+        Commands::Update {
+            path,
+            output,
+            force,
+            no_cluster,
+        } => {
+            cmd_update::cmd_update(path.as_deref(), output.as_deref(), force, no_cluster)?;
         }
         Commands::MergeGraphs { inputs, output } => {
             cmd_merge::cmd_merge_graphs(&inputs, &output)?;
@@ -866,6 +943,9 @@ async fn main() -> Result<()> {
                     None,
                     None,
                     None,
+                    false,
+                    None,
+                    false,
                 )
                 .await
                 .context("Auto-build failed")?;
@@ -1200,7 +1280,7 @@ fn cmd_init() -> Result<()> {
 # [media]
 # model = "~/.graphify-rs/models/ggml-base.en.bin"  # whisper.cpp GGML path, or model name for the Python CLI
 
-# Export formats (comma-separated). Available: json,html,callflow-html,tree,graphml,cypher,svg,rdf,falkordb,wiki,obsidian,report
+# Export formats (comma-separated). Available: json,html,split-html,callflow-html,tree,graphml,cypher,svg,rdf,falkordb,wiki,obsidian,report
 # Leave empty or omit for the default set (json, report).
 # formats = ["json", "html", "report"]
 

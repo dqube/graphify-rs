@@ -745,6 +745,95 @@ pub fn cluster_incremental(
         .collect()
 }
 
+/// Renumber freshly-detected communities to line up with a previous run.
+///
+/// Leiden numbers communities by discovery order, so an unrelated edit anywhere
+/// in the corpus can shuffle every id. That churn is invisible in the graph
+/// structure but destroys everything keyed by community id — most importantly
+/// the LLM-generated names from `label`, which would all be silently
+/// reattached to the wrong communities after a rebuild.
+///
+/// Each new community adopts the id of the previous community it overlaps most,
+/// matched greedily one-to-one by intersection size. Communities with no
+/// counterpart take the lowest ids not already claimed, ordered by size then
+/// lexically, so the result depends only on the inputs and never on hash order.
+///
+/// `previous_node_community` maps a node id to the community it was in last
+/// time — see [`labels_from_graph`](label::labels_from_graph) for recovering
+/// names once ids are stable again.
+pub fn remap_communities_to_previous(
+    communities: &HashMap<usize, Vec<String>>,
+    previous_node_community: &HashMap<String, usize>,
+) -> HashMap<usize, Vec<String>> {
+    if communities.is_empty() {
+        return HashMap::new();
+    }
+
+    let new_sets: HashMap<usize, HashSet<&str>> = communities
+        .iter()
+        .map(|(&cid, nodes)| (cid, nodes.iter().map(String::as_str).collect()))
+        .collect();
+
+    let mut old_sets: HashMap<usize, HashSet<&str>> = HashMap::new();
+    for (node, &old_cid) in previous_node_community {
+        old_sets.entry(old_cid).or_default().insert(node.as_str());
+    }
+
+    // (overlap, old_cid, new_cid) sorted by overlap desc, then by id so that
+    // equal overlaps resolve identically on every run.
+    let mut overlaps: Vec<(usize, usize, usize)> = Vec::new();
+    for (&old_cid, old_nodes) in &old_sets {
+        for (&new_cid, new_nodes) in &new_sets {
+            let overlap = old_nodes.intersection(new_nodes).count();
+            if overlap > 0 {
+                overlaps.push((overlap, old_cid, new_cid));
+            }
+        }
+    }
+    overlaps.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
+
+    let mut new_to_final: HashMap<usize, usize> = HashMap::new();
+    let mut used_old: HashSet<usize> = HashSet::new();
+    let mut matched_new: HashSet<usize> = HashSet::new();
+    for (_, old_cid, new_cid) in overlaps {
+        if used_old.contains(&old_cid) || matched_new.contains(&new_cid) {
+            continue;
+        }
+        new_to_final.insert(new_cid, old_cid);
+        used_old.insert(old_cid);
+        matched_new.insert(new_cid);
+    }
+
+    let mut unmatched: Vec<usize> = communities
+        .keys()
+        .copied()
+        .filter(|cid| !matched_new.contains(cid))
+        .collect();
+    unmatched.sort_by(|a, b| {
+        let (na, nb) = (&communities[a], &communities[b]);
+        nb.len().cmp(&na.len()).then_with(|| {
+            let (mut sa, mut sb) = (na.clone(), nb.clone());
+            sa.sort();
+            sb.sort();
+            sa.cmp(&sb)
+        })
+    });
+
+    let mut next_id = 0usize;
+    for new_cid in unmatched {
+        while used_old.contains(&next_id) {
+            next_id += 1;
+        }
+        new_to_final.insert(new_cid, next_id);
+        used_old.insert(next_id);
+    }
+
+    communities
+        .iter()
+        .map(|(cid, nodes)| (new_to_final[cid], nodes.clone()))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -763,6 +852,126 @@ mod tests {
             community: None,
             extra: StdMap::new(),
         }
+    }
+
+    /// `{cid: [nodes]}` from a compact literal, for the remap tests.
+    fn comms(pairs: &[(usize, &[&str])]) -> HashMap<usize, Vec<String>> {
+        pairs
+            .iter()
+            .map(|(cid, nodes)| (*cid, nodes.iter().map(|s| (*s).to_string()).collect()))
+            .collect()
+    }
+
+    fn prev(pairs: &[(&str, usize)]) -> HashMap<String, usize> {
+        pairs
+            .iter()
+            .map(|(n, cid)| ((*n).to_string(), *cid))
+            .collect()
+    }
+
+    /// The id a node ended up in, for assertions that do not care about numbering.
+    fn cid_of(result: &HashMap<usize, Vec<String>>, node: &str) -> usize {
+        result
+            .iter()
+            .find(|(_, nodes)| nodes.iter().any(|n| n == node))
+            .map(|(cid, _)| *cid)
+            .unwrap_or_else(|| panic!("{node} is in no community"))
+    }
+
+    #[test]
+    fn remap_restores_previous_ids_after_renumbering() {
+        // Leiden handed back the same two groups under swapped ids.
+        let new = comms(&[(0, &["c", "d"]), (1, &["a", "b"])]);
+        let previous = prev(&[("a", 0), ("b", 0), ("c", 1), ("d", 1)]);
+
+        let out = remap_communities_to_previous(&new, &previous);
+
+        assert_eq!(cid_of(&out, "a"), 0, "the a/b group keeps its old id");
+        assert_eq!(cid_of(&out, "c"), 1, "the c/d group keeps its old id");
+    }
+
+    #[test]
+    fn remap_matches_by_largest_overlap_not_by_id() {
+        // New community 0 is mostly the old community 7.
+        let new = comms(&[(0, &["a", "b", "c"]), (1, &["z"])]);
+        let previous = prev(&[("a", 7), ("b", 7), ("c", 7), ("z", 3)]);
+
+        let out = remap_communities_to_previous(&new, &previous);
+
+        assert_eq!(cid_of(&out, "a"), 7);
+        assert_eq!(cid_of(&out, "z"), 3);
+    }
+
+    #[test]
+    fn remap_gives_brand_new_communities_unclaimed_ids() {
+        // "n" is new code with no previous counterpart; it must not steal id 0.
+        let new = comms(&[(0, &["a", "b"]), (1, &["n"])]);
+        let previous = prev(&[("a", 0), ("b", 0)]);
+
+        let out = remap_communities_to_previous(&new, &previous);
+
+        assert_eq!(cid_of(&out, "a"), 0, "existing community keeps id 0");
+        assert_ne!(cid_of(&out, "n"), 0, "new community must not collide");
+        assert_eq!(out.len(), 2, "no community may be dropped or fused");
+    }
+
+    #[test]
+    fn remap_is_one_to_one_when_a_community_splits() {
+        // The old community 0 split in two. One half inherits 0; the other
+        // must get a fresh id rather than both claiming 0 and overwriting.
+        let new = comms(&[(0, &["a", "b"]), (1, &["c"])]);
+        let previous = prev(&[("a", 0), ("b", 0), ("c", 0)]);
+
+        let out = remap_communities_to_previous(&new, &previous);
+
+        assert_eq!(out.len(), 2);
+        assert_ne!(cid_of(&out, "a"), cid_of(&out, "c"));
+        let all: HashSet<usize> = out.keys().copied().collect();
+        assert_eq!(all.len(), 2, "ids must stay distinct");
+    }
+
+    #[test]
+    fn remap_preserves_every_node() {
+        let new = comms(&[(0, &["a", "b"]), (1, &["c"]), (2, &["d", "e"])]);
+        let previous = prev(&[("a", 5), ("c", 9)]);
+
+        let out = remap_communities_to_previous(&new, &previous);
+
+        let mut got: Vec<String> = out.values().flatten().cloned().collect();
+        got.sort();
+        assert_eq!(got, ["a", "b", "c", "d", "e"]);
+    }
+
+    #[test]
+    fn remap_is_deterministic_across_runs() {
+        // Equal overlaps must not be broken by hash iteration order.
+        let new = comms(&[(0, &["a", "x"]), (1, &["b", "y"]), (2, &["q"])]);
+        let previous = prev(&[("a", 1), ("b", 0), ("x", 0), ("y", 1)]);
+
+        let first = remap_communities_to_previous(&new, &previous);
+        for _ in 0..25 {
+            assert_eq!(remap_communities_to_previous(&new, &previous), first);
+        }
+    }
+
+    #[test]
+    fn remap_handles_an_empty_previous_assignment() {
+        // First run ever: nothing to match against, but ids must still be
+        // contiguous from 0 and every node must survive.
+        let new = comms(&[(4, &["a", "b"]), (9, &["c"])]);
+
+        let out = remap_communities_to_previous(&new, &HashMap::new());
+
+        let mut ids: Vec<usize> = out.keys().copied().collect();
+        ids.sort_unstable();
+        assert_eq!(ids, [0, 1]);
+        assert_eq!(cid_of(&out, "a"), 0, "largest community takes the lowest id");
+    }
+
+    #[test]
+    fn remap_of_nothing_is_nothing() {
+        let out = remap_communities_to_previous(&HashMap::new(), &prev(&[("a", 0)]));
+        assert!(out.is_empty());
     }
 
     fn make_edge(src: &str, tgt: &str) -> GraphEdge {

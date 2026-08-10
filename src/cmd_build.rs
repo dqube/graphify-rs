@@ -28,6 +28,9 @@ pub async fn cmd_build(
     neo4j_conn: Option<graphify_export::Neo4jConnection>,
     media_model: Option<String>,
     dedup_llm: Option<String>,
+    cargo: bool,
+    postgres: Option<String>,
+    google_workspace: bool,
 ) -> Result<()> {
     let root = PathBuf::from(path);
     let output_dir = PathBuf::from(output);
@@ -64,12 +67,14 @@ pub async fn cmd_build(
         .await;
     }
 
-    let (detection, changed) = step_detect(&root, &output_dir, verb)?;
+    let (mut detection, changed) = step_detect(&root, &output_dir, verb)?;
 
     // A requested Neo4j push forces the pipeline to run even when nothing
     // changed — the push is the point of the invocation. The AST cache keeps
-    // this cheap.
-    if !changed && neo4j_conn.is_none() {
+    // this cheap. `--postgres` and `--cargo` force it for a different reason:
+    // neither a live schema nor `Cargo.toml` is tracked by the change index, so
+    // "no files changed" says nothing about whether their output is current.
+    if !changed && neo4j_conn.is_none() && postgres.is_none() && !cargo {
         let all_outputs_present = selected.iter().all(|fmt| {
             let p = match *fmt {
                 "json" => output_dir.join("graph.json"),
@@ -98,7 +103,19 @@ pub async fn cmd_build(
         }
     }
 
+    if !code_only {
+        step_google_workspace(&root, &cache_dir, &mut detection, google_workspace, verb);
+    }
+
     let mut extractions = step_extract_ast(&root, &cache_dir, &detection, code_only, verb)?;
+
+    if cargo {
+        step_cargo(&root, &mut extractions, verb);
+    }
+
+    if let Some(ref dsn) = postgres {
+        step_postgres(dsn, &mut extractions, verb).await?;
+    }
 
     if !code_only {
         if let Some(md_result) = step_markdown_links(&root, &detection, verb) {
@@ -593,6 +610,125 @@ fn step_extract_ast(
     Ok(vec![ast_result])
 }
 
+/// Cargo step: add one node per workspace crate plus `crate_depends_on` edges
+/// between crates that depend on each other. Manifest-only, so it needs no
+/// toolchain and never hits the network; external crates.io dependencies are
+/// deliberately left out.
+fn step_cargo(
+    root: &Path,
+    extractions: &mut Vec<graphify_core::model::ExtractionResult>,
+    verb: Verbosity,
+) {
+    let result = graphify_extract::cargo_introspect::introspect_cargo(root);
+    if result.nodes.is_empty() {
+        info_print!(
+            verb,
+            "  {} --cargo: no Cargo workspace found at {}",
+            "!".yellow(),
+            root.display()
+        );
+        return;
+    }
+    info_print!(
+        verb,
+        "  Cargo: {} crate(s), {} internal dependency edge(s)",
+        result.nodes.len().to_string().bold(),
+        result.edges.len().to_string().bold()
+    );
+    extractions.push(result);
+}
+
+/// Google Workspace step: export `.gdoc`/`.gsheet`/`.gslides` shortcuts to
+/// markdown sidecars and add those to the document set, so the graph sees the
+/// documents' contents rather than the pointer files.
+///
+/// Off unless requested: exporting fetches content from Google with the user's
+/// credentials. When shortcuts exist but export is off, say so rather than
+/// skipping in silence — a folder of Drive shortcuts otherwise looks empty for
+/// no visible reason.
+fn step_google_workspace(
+    root: &Path,
+    cache_dir: &Path,
+    detection: &mut graphify_detect::DetectResult,
+    enabled: bool,
+    verb: Verbosity,
+) {
+    let shortcuts = graphify_detect::find_shortcuts(root);
+    if shortcuts.is_empty() {
+        return;
+    }
+
+    if !(enabled || graphify_detect::google_workspace_enabled()) {
+        info_print!(
+            verb,
+            "  {} {} Google Workspace shortcut(s) skipped; pass --google-workspace to export them",
+            "!".yellow(),
+            shortcuts.len().to_string().bold()
+        );
+        return;
+    }
+
+    let out_dir = cache_dir.join("gworkspace");
+    let mut converted = 0usize;
+    for shortcut in &shortcuts {
+        match graphify_detect::convert_google_workspace_file(shortcut, &out_dir) {
+            Ok(Some(sidecar)) => {
+                converted += 1;
+                // Absolute, because the sidecar lives under the output
+                // directory rather than inside the scanned tree; `root.join`
+                // on an absolute path keeps it intact.
+                detection
+                    .files
+                    .entry(graphify_detect::FileType::Document)
+                    .or_default()
+                    .push(sidecar.to_string_lossy().into_owned());
+            }
+            Ok(None) => verbose_print!(
+                verb,
+                "    {} exported no readable content",
+                shortcut.display()
+            ),
+            // One unreachable document should not end the build.
+            Err(e) => info_print!(
+                verb,
+                "  {} {}: {e}",
+                "!".yellow(),
+                shortcut.file_name().unwrap_or_default().to_string_lossy()
+            ),
+        }
+    }
+
+    if converted > 0 {
+        info_print!(
+            verb,
+            "  Google Workspace: exported {} of {} shortcut(s)",
+            converted.to_string().bold(),
+            shortcuts.len()
+        );
+    }
+}
+
+/// PostgreSQL step: read a live schema and add its tables, views, routines and
+/// foreign keys to the graph. Fails the build on a connection or query error —
+/// silently producing a graph missing the schema the user explicitly asked for
+/// would be worse than stopping.
+async fn step_postgres(
+    dsn: &str,
+    extractions: &mut Vec<graphify_core::model::ExtractionResult>,
+    verb: Verbosity,
+) -> Result<()> {
+    info_print!(verb, "  {} PostgreSQL schema...", "Reading".cyan());
+    let result = crate::pg_introspect::introspect_postgres(dsn).await?;
+    info_print!(
+        verb,
+        "  PostgreSQL: {} object(s), {} relationship(s)",
+        result.nodes.len().to_string().bold(),
+        result.edges.len().to_string().bold()
+    );
+    extractions.push(result);
+    Ok(())
+}
+
 /// Markdown cross-reference step: emit `references` edges from `.md` documents
 /// to the project files they link to. Deterministic, so doc wiring shows up in
 /// every build regardless of LLM availability.
@@ -980,9 +1116,22 @@ async fn step_extract_semantic(
                         .map_err(|e| anyhow::anyhow!("semaphore closed: {e}"))?;
                     // Read content after acquiring the semaphore so at most `concurrency`
                     // files are held in memory simultaneously.
-                    let content = tokio::fs::read_to_string(&doc_p)
-                        .await
-                        .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", doc_p.display()))?;
+                    // Office documents are zip archives; they have to be
+                    // converted before they are readable as text at all.
+                    let content = if graphify_detect::is_office_path(&doc_p) {
+                        let p = doc_p.clone();
+                        tokio::task::spawn_blocking(move || graphify_detect::office_to_markdown(&p))
+                            .await
+                            .ok()
+                            .flatten()
+                            .ok_or_else(|| {
+                                anyhow::anyhow!("cannot extract text from {}", doc_p.display())
+                            })?
+                    } else {
+                        tokio::fs::read_to_string(&doc_p)
+                            .await
+                            .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", doc_p.display()))?
+                    };
                     let result = graphify_extract::semantic::extract_semantic(
                         &doc_p, &content, file_type, &cfg_clone,
                     )
@@ -1202,6 +1351,10 @@ fn step_export(
 ) -> Result<()> {
     std::fs::create_dir_all(output_dir)?;
 
+    // Record the scanned root so a later bare `update` re-scans this tree
+    // rather than whatever directory it happens to be run from.
+    crate::cmd_update::record_root(output_dir, Path::new(root));
+
     if should_export("json") {
         let json_path = graphify_export::export_json(graph, output_dir)?;
         info_print!(verb, "  Wrote {}", json_path.display().to_string().dimmed());
@@ -1216,7 +1369,12 @@ fn step_export(
             max_viz_nodes,
         )?;
         info_print!(verb, "  Wrote {}", html_path.display().to_string().dimmed());
+    }
 
+    // Its own format rather than a side effect of `html`: one page per
+    // community is hundreds of files on a real graph, which nobody asking for
+    // `html` expects to find sitting next to graph.html.
+    if should_export("split-html") {
         let split_path =
             graphify_export::export_html_split(graph, communities, community_labels, output_dir)?;
         info_print!(
@@ -1286,6 +1444,8 @@ fn step_export(
     if should_export("callflow-html") {
         let options = graphify_export::CallflowOptions {
             project_name: project_display_name(root),
+            built_at_commit: graphify_export::git_short_commit(Path::new(root))
+                .unwrap_or_default(),
             ..Default::default()
         };
         let callflow_path =

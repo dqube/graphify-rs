@@ -7,10 +7,14 @@
 - [Global Flags](#global-flags)
 - [Commands](#commands)
   - [build](#graphify-rs-build) — Build knowledge graph
+  - [update](#graphify-rs-update) — Re-extract code and rewrite the graph (no LLM)
+  - [export](#graphify-rs-export) — Re-render an existing graph in another format
+  - [tree](#graphify-rs-tree) — Collapsible D3 tree view
   - [query](#graphify-rs-query) — Query the graph
   - [explain](#graphify-rs-explain) — Explain a node
   - [path](#graphify-rs-path) — Shortest path between two nodes
-  - [operational commands](#operational-commands) — label, diagnose, check-update, cache-check, provider, reflect, clone, extract, merge-graphs, merge-driver, hook check/guard, uninstall
+  - [global](#graphify-rs-global) — Cross-project graph in ~/.graphify-rs/
+  - [operational commands](#operational-commands) — label, diagnose, check-update, cache-check, provider, reflect, clone, extract, merge-graphs, merge-chunks, merge-semantic, merge-driver, hook check/guard, uninstall
   - [diff](#graphify-rs-diff) — Compare two graph snapshots
   - [stats](#graphify-rs-stats) — Show graph statistics
   - [watch](#graphify-rs-watch) — Auto-rebuild on file changes
@@ -62,6 +66,9 @@ Build the knowledge graph from files in a directory. This is the main pipeline: 
 | `--cluster-only` | | `bool` | `false` | Skip detection and extraction; re-run Leiden clustering on the existing `graph.json` and re-export. |
 | `--mode <MODE>` | | `standard` \| `deep` | `standard` | Inference mode. `deep` adds an LLM semantic pass over the largest code files (up to 20), cached under `<output>/cache/deep/`. |
 | `--neo4j-push` | | `bool` | `false` | Push the graph to a live Neo4j instance after export. Credentials from `[neo4j]` in `graphify-rs.toml` or `NEO4J_*` env vars. |
+| `--cargo` | | `bool` | `false` | Add one node per Cargo workspace crate plus `crate_depends_on` edges between crates that depend on each other. Reads `Cargo.toml` manifests directly — no toolchain, no network. Only workspace-internal dependencies are emitted; crates.io dependencies are left out. |
+| `--google-workspace` | | `bool` | `false` | Export `.gdoc`/`.gsheet`/`.gslides` shortcuts to markdown via the `gws` CLI and add them to the corpus. Off by default because it fetches content from Google with your credentials. Also settable with `GRAPHIFY_GOOGLE_WORKSPACE=1`. Requires [`gws`](https://github.com/googleworkspace/cli) (`gws auth login -s drive`); a `.gsheet` additionally needs the Office converter, which is built in. Account addresses are recorded only as a hash. |
+| `--postgres [<DSN>]` | | `String` | *(off)* | Introspect a live PostgreSQL schema and add its tables, views, routines, and foreign keys. Pass a connection string, or give the flag alone to use the standard `PG*` environment variables. Runs entirely inside a `SERIALIZABLE READ ONLY DEFERRABLE` transaction. TLS is negotiated when the server requires it. |
 | `--format <FMT,...>` | | `String` (comma-separated) | `json,report` | Export formats to generate. Available: `json`, `html`, `callflow-html`, `graphml`, `cypher`, `svg`, `wiki`, `obsidian`, `report`. `callflow-html` writes `callflow.html`, a call-flow architecture document with per-section Mermaid flowcharts and call tables; it picks up `GRAPH_REPORT.md` for a highlights card when `report` is also selected. |
 | `--max-viz-nodes <N>` | | `usize` | `2000` | Maximum nodes in HTML visualization. Larger values show more detail but may slow the browser. |
 
@@ -89,6 +96,15 @@ graphify-rs build --mode deep
 export NEO4J_USER=neo4j NEO4J_PASSWORD=secret
 graphify-rs build --neo4j-push
 
+# Add Cargo workspace crate topology to the graph
+graphify-rs build --cargo
+
+# Add a live PostgreSQL schema to the graph
+graphify-rs build --postgres "postgres://user:pass@localhost/shop"
+
+# Same, taking connection details from PGHOST / PGUSER / PGDATABASE / …
+graphify-rs build --postgres
+
 # Re-cluster the existing graph without re-extracting
 graphify-rs build --cluster-only
 
@@ -108,13 +124,55 @@ graphify-rs build --code-only --no-llm --no-viz --format json,report
 #### Build Pipeline
 
 1. **Detect** — Scans `--path` for code, doc, paper, and image files (respects `.graphifyignore`, skips sensitive files).
-2. **Extract AST (Pass 1)** — Deterministic tree-sitter + regex extraction for code files. Per-file SHA256 cache in `<output>/cache/`.
-3. **Semantic Extraction (Pass 2)** — Concurrent LLM extraction for docs/papers (skipped with `--no-llm` or `--code-only`). Supports Anthropic, OpenAI, Ollama, and OpenAI-compatible providers. Configure via `[llm]` in `graphify.toml`, or set `ANTHROPIC_API_KEY` env var for backward compat. Concurrency = `min(--jobs, 8)`, default 4.
-4. **Media Transcription** — Audio/video files (`.mp4`, `.mp3`, `.wav`, …) are transcribed with a locally installed Whisper tool (`whisper-cli`, OpenAI `whisper`, or `GRAPHIFY_WHISPER_CMD`). Each file gets a transcript concept node plus a `transcribes` edge; with an LLM configured, transcripts also go through semantic extraction. Transcripts are cached by content hash in `<output>/cache/media/` and are reused even on machines without a Whisper tool. Skipped with `--code-only`.
-4. **Build Graph** — Assemble nodes and edges, deduplicate. If `.codegraph/codegraph.db` exists in the project root, CodeGraph edges (calls, imports, contains, etc.) are merged automatically.
-5. **Cluster** — Leiden community detection + cohesion scoring.
-6. **Analyze** — God nodes, surprising connections, suggested questions.
-7. **Export** — Write selected formats to `--output`.
+2. **Extract AST (Pass 1)** — Deterministic tree-sitter + regex extraction for code files. Per-file SHA256 cache in `<output>/cache/`. Two file kinds are routed by **filename** rather than extension:
+   - **MCP configs** (`.mcp.json`, `mcp.json`, `mcp_servers.json`, `claude_desktop_config.json`) become server topology: a node per server, plus `references` edges to the command and package that launch it and `requires_env` edges to the environment variables it needs. Environment **values are never read** — only key names enter the graph. Command, package, and env-var nodes are global, so a runtime shared across configs becomes one hub node.
+   - **Package manifests** (`pyproject.toml`, `go.mod`, `pom.xml`, `apm.yml`) each contribute one package node keyed by package *name*, plus `depends_on` edges. Because the id is the name, a monorepo's manifests link to each other; dependencies with no manifest in the corpus (anything external) are dropped as dangling edges rather than becoming stub nodes.
+   - **SCIP indexes** (any `*.scip.json`) become symbol nodes with `scip_impl` / `scip_typed` / `scip_def` / `scip_ref` edges. A relationship target resolves to a symbol in the *same* document first, then to a unique match elsewhere; a target that is missing or ambiguous gets an explicit external stub rather than a guess. This reads the flattened SCIP-style JSON that dumps commonly produce, not the SCIP protobuf.
+3. **Google Workspace Export (optional)** — with `--google-workspace`, `.gdoc`/`.gsheet`/`.gslides` shortcuts are exported through the `gws` CLI into markdown sidecars under `<output>/cache/gworkspace/`, and those sidecars join the document set in the shortcuts' place. A shortcut file is only a pointer, so indexing one directly adds a URL and nothing else. One unreachable document warns and the build continues. Without the flag, shortcuts are reported and skipped.
+4. **Office Conversion** — `.docx` and `.xlsx` are zip+XML containers, so they are converted to markdown before anything else reads them: Word headings become `#`/`##`/`###`, list styles become bullets, and Word tables and spreadsheet sheets become pipe tables (one `## Sheet: <name>` section per sheet). Conversion feeds both the corpus word count and semantic extraction. Archives are screened for zip-bomb characteristics first — 50 MiB on disk, 512 MiB decompressed, and a 200:1 ratio cap — with the ceiling enforced against bytes actually produced, since the sizes declared in a zip's central directory are attacker-controlled. `.pptx` is not supported.
+5. **Semantic Extraction (Pass 2)** — Concurrent LLM extraction for docs/papers (skipped with `--no-llm` or `--code-only`). Supports Anthropic, OpenAI, Ollama, and OpenAI-compatible providers. Configure via `[llm]` in `graphify.toml`, or set `ANTHROPIC_API_KEY` env var for backward compat. Concurrency = `min(--jobs, 8)`, default 4.
+6. **Media Transcription** — Audio/video files (`.mp4`, `.mp3`, `.wav`, …) are transcribed with a locally installed Whisper tool (`whisper-cli`, OpenAI `whisper`, or `GRAPHIFY_WHISPER_CMD`). Each file gets a transcript concept node plus a `transcribes` edge; with an LLM configured, transcripts also go through semantic extraction. Transcripts are cached by content hash in `<output>/cache/media/` and are reused even on machines without a Whisper tool. Skipped with `--code-only`.
+7. **External Sources (optional)** — `--cargo` adds Cargo workspace crate topology; `--postgres` adds a live database schema. A live schema is reconstructed as synthetic DDL and run through the same SQL extractor a checked-in `schema.sql` would use, so both produce the same node shapes. Foreign keys become `references` edges between table nodes; they are emitted directly rather than through the extractor, which only recognises `CREATE` statements. Foreign keys are read from `pg_catalog.pg_constraint` rather than `information_schema`, because the latter is filtered by write privilege and would return nothing for a read-only introspection role. Neither source is tracked by the change index, so either flag forces a rebuild.
+8. **Build Graph** — Assemble nodes and edges, deduplicate. If `.codegraph/codegraph.db` exists in the project root, CodeGraph edges (calls, imports, contains, etc.) are merged automatically.
+9. **Cluster** — Leiden community detection + cohesion scoring.
+10. **Analyze** — God nodes, surprising connections, suggested questions.
+11. **Export** — Write selected formats to `--output`.
+
+---
+
+### `graphify-rs add`
+
+Fetch a URL into the corpus as local markdown, ready for the next `build`.
+
+Web pages, arXiv abstracts, tweets, and PDFs are fetched and saved with provenance frontmatter. **Audio and video URLs take a different route**: the audio is downloaded with `yt-dlp` and then transcribed with a local Whisper tool, and the *transcript* is what enters the corpus. A downloaded `.m4a` on its own contributes nothing to a graph, so the download and the transcription are one step.
+
+The URL is validated before anything reaches the network or a subprocess — links resolving to private addresses are refused.
+
+#### Parameters
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `<URL>` | `String` | *(required)* | Web page, arXiv abstract, tweet, PDF, or audio/video URL. |
+| `--dir <DIR>` | `String` | `raw` | Directory to write the markdown into. |
+| `--no-transcribe` | `bool` | `false` | Download media without transcribing it. |
+| `--model <MODEL>` | `String` | *(auto)* | Whisper model override. |
+
+A URL counts as media when its **host** is a known media site (YouTube, Vimeo, SoundCloud, Apple Podcasts) or its path ends in a media extension. Matching is on the host specifically, so an article that merely links to YouTube is still fetched as a page.
+
+#### Examples
+
+```bash
+# Fetch a paper
+graphify-rs add https://arxiv.org/abs/1706.03762
+
+# Download and transcribe a talk
+graphify-rs add "https://www.youtube.com/watch?v=..." --dir raw
+
+# Keep the audio, skip transcription
+graphify-rs add "https://youtu.be/..." --no-transcribe
+```
+
+Requires [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) for media URLs, plus a Whisper tool (`whisper-cli`, OpenAI `whisper`, or `GRAPHIFY_WHISPER_CMD`) to transcribe. If the Whisper tool is missing the audio is kept and the reason is reported, so re-running after installing one finishes the job.
 
 ---
 
@@ -216,6 +274,102 @@ Then, in a committed `.gitattributes`:
 ```text
 graphify-out/graph.json merge=graphify
 ```
+
+### `graphify-rs export`
+
+Re-render an existing graph without rebuilding it.
+
+```bash
+graphify-rs export html
+graphify-rs export callflow-html --max-sections 8 --diagram-scale 1.4 --lang en
+graphify-rs export tree --output docs/tree.html
+graphify-rs export neo4j --push http://localhost:7474
+```
+
+| Format | Output |
+|--------|--------|
+| `html` | Single-page interactive visualization (`--max-viz-nodes`) |
+| `split-html` | Per-community pages for graphs too large for one page |
+| `callflow-html` | Mermaid call-flow walkthrough |
+| `tree` | Collapsible D3 tree (also available as `graphify-rs tree`) |
+| `obsidian` | Obsidian vault |
+| `wiki` | Markdown wiki |
+| `svg` | Static SVG |
+| `graphml` / `cypher` / `rdf` / `falkordb` | Interchange formats |
+| `neo4j` | Push to a live Neo4j instance rather than writing a file |
+
+`build --format` produces these same files, but only as part of a full pipeline run. Re-rendering is cheap and re-extraction is not, so anything that only changes presentation — a different diagram scale, a language, a node cap — belongs here.
+
+`--graph` defaults to `graphify-rs-out/graph.json`, and output lands beside it unless `--output` says otherwise. Community membership and the names written by `label` are read back out of the graph, so an export reflects the last `label` run.
+
+For `callflow-html` and `tree`, `--output` may name an `.html` file rather than a directory. Redirecting is safe: the render happens in a scratch directory and is then moved, so `--output notes.html` cannot overwrite an unrelated `callflow.html` sitting beside it.
+
+Callflow tuning: `--max-sections`, `--diagram-scale` (clamped to 0.65–1.8, matching Python), `--max-diagram-nodes`, `--max-diagram-edges`, `--lang` (`auto`, `en`, or a `zh` locale), `--label` for the project name in the header. Flags that do not apply to the chosen format are reported on stderr rather than silently ignored.
+
+`json` and `report` are deliberately absent — they are build outputs rather than renderings, and [`update`](#graphify-rs-update) is how you refresh them.
+
+---
+
+### `graphify-rs update`
+
+Re-extract the code corpus and rewrite the graph. AST only — no LLM, no API key, no cost. This is what a git hook or an AI assistant runs after editing code.
+
+```bash
+graphify-rs update              # re-scan the root the last build used
+graphify-rs update ./src        # or an explicit directory
+graphify-rs update --force      # allow a rebuild that has fewer nodes
+graphify-rs update --no-cluster # skip community detection
+```
+
+Unchanged files come from the content-hash cache, so cost scales with what you edited rather than with repository size. Docs, papers, and images are not re-read; those need a full `build`.
+
+With no path argument it re-scans the root recorded by the last build (`.graphify_root` in the output directory), falling back to the working directory. That means `update` run from a subdirectory still rebuilds the whole project rather than silently graphing a fragment of it.
+
+**It refuses to shrink your graph.** If the rebuild produces fewer nodes than the graph already on disk, it stops, changes nothing, and exits non-zero. A shrinking rebuild is far more often a broken extraction than deleted code, and the failure is otherwise invisible — you get a smaller graph and no indication anything went wrong. After a refactor that legitimately deletes code, `--force` says so. An existing `graph.json` that cannot be parsed is also refused rather than overwritten, since an unreadable file cannot be proven safe to replace.
+
+Community numbering is realigned to the previous graph on every run, and names written by `label` are carried across and written back. Without that realignment, Leiden's discovery-order numbering would reshuffle community ids after any edit and strand every name on the wrong community.
+
+`GRAPHIFY_FORCE=1` is honoured as an equivalent to `--force`, matching the Python implementation so a hook that sets it works against either.
+
+---
+
+### `graphify-rs tree`
+
+The collapsible D3 tree, under its own name for parity with the Python CLI. Identical to `export tree`.
+
+```bash
+graphify-rs tree                            # writes <graph dir>/tree.html
+graphify-rs tree --graph other/graph.json --output /tmp/tree.html
+```
+
+---
+
+### `graphify-rs global`
+
+One graph spanning every project you've added, kept in `~/.graphify-rs/` (`global-graph.json` plus a `global-manifest.json` tracking what came from where).
+
+| Subcommand | Purpose |
+|------------|---------|
+| `global add <graph.json> [--as <tag>]` | Add or refresh a project. The tag defaults to the project directory name. |
+| `global remove <tag>` | Drop every node that tag contributed. |
+| `global list` | Tracked projects with node counts and when each was added. |
+| `global path` | Print the store path and nothing else, for scripting. |
+
+```bash
+graphify-rs build --path ~/work/api     && graphify-rs global add ~/work/api/graphify-rs-out/graph.json
+graphify-rs build --path ~/work/web     && graphify-rs global add ~/work/web/graphify-rs-out/graph.json --as frontend
+graphify-rs global list
+```
+
+Every node is namespaced by its tag, so a `Config` in two repos stays two nodes instead of fusing into one and inventing edges between unrelated codebases. External libraries both projects reference *are* merged, with edges rewired onto the surviving node — that shared dependency is the point of a cross-project graph.
+
+`add` is idempotent: re-adding an unchanged graph is detected by content hash and does nothing. Re-adding a changed one prunes the tag's old nodes first, so the store cannot grow without bound. Adding a second graph under a tag that already points somewhere else warns and names both paths rather than silently reinterpreting the tag.
+
+The store is deliberately *not* Python graphify's `~/.graphify/`. The two graph formats are incompatible — Python writes `file_type` where this expects `node_type` — so a shared file would be corrupted by whichever tool wrote to it second. The two can be installed side by side.
+
+Two known limits: removing a project also removes shared external nodes it happened to own, taking other projects' rewired edges to them with it; and community numbering is offset per repo rather than recomputed, so cross-project communities are not detected.
+
+---
 
 Fanning semantic extraction out across subagents, then folding the results back in:
 

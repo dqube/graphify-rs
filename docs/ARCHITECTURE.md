@@ -17,18 +17,19 @@ Source Files → detect → extract → build → cluster → analyze → export
 
 | Crate | Purpose | Key Functions |
 |-------|---------|---------------|
-| `graphify-core` | Data models, graph structure, ID generation, confidence system | `KnowledgeGraph`, `GraphNode`, `GraphEdge` |
-| `graphify-detect` | File discovery, classification, `.graphifyignore`, sensitive file filtering | `classify_file()`, `is_sensitive()` |
-| `graphify-extract` | AST extraction (37 languages via tree-sitter + regex), markdown cross-references, rationale comments and ADR/RFC citations, multi-provider LLM semantic extraction | `extract()`, `extract_file()`, `extract_markdown_links()`, `extract_rationale()`, `resolve_cross_file_imports()` |
+| `graphify-core` | Data models, graph structure, ID generation, confidence system, filename tables shared by detection and extraction | `KnowledgeGraph`, `GraphNode`, `GraphEdge`, `is_mcp_config_path()`, `manifest_ecosystem()` |
+| `graphify-detect` | File discovery, classification, `.graphifyignore`, sensitive file filtering, Office (`.docx`/`.xlsx`) to-markdown conversion with zip-bomb screening | `classify_file()`, `is_sensitive()`, `office_to_markdown()` |
+| `graphify-extract` | AST extraction (37 languages via tree-sitter + regex), MCP config and package manifest ingestion, Cargo workspace introspection, markdown cross-references, rationale comments and ADR/RFC citations, multi-provider LLM semantic extraction | `extract()`, `extract_file()`, `introspect_cargo()`, `extract_markdown_links()`, `extract_rationale()`, `resolve_cross_file_imports()` |
 | `graphify-build` | Graph assembly from extraction results, node/edge deduplication, CodeGraph SQLite edge merge | `build_from_extraction()`, `merge_codegraph_edges()` |
-| `graphify-cluster` | Leiden community detection, cohesion scoring, incremental re-clustering | `cluster()`, `cluster_incremental()`, `cohesion_score()` |
+| `graphify-cluster` | Leiden community detection, cohesion scoring, incremental re-clustering, stable renumbering across rebuilds | `cluster()`, `cluster_incremental()`, `cohesion_score()`, `remap_communities_to_previous()` |
 | `graphify-analyze` | PageRank, dependency cycles, god nodes, surprising connections, graph embeddings, temporal risk | `pagerank()`, `detect_cycles()`, `god_nodes()` |
 | `graphify-export` | 13 formats: JSON, HTML, split HTML, call-flow HTML (Mermaid), D3 tree HTML, SVG, GraphML, Cypher, FalkorDB, RDF/Turtle, Wiki, Report, Obsidian | `export_json()`, `export_html()`, `export_callflow_html()`, `export_tree_html()`, `export_falkordb()`, `export_rdf()` |
 | `graphify-cache` | SHA256 content-hash caching for incremental rebuilds | `load_cached_from()`, `save_cached_to()` |
 | `graphify-security` | URL validation (SSRF), path traversal protection, label injection defense | `validate_url()`, `sanitize_path()` |
 | `graphify-ingest` | URL fetching: arXiv, tweets (oEmbed), PDFs, webpages | `ingest_url()` |
+| `graphify-rs` (bin) | CLI commands, plus live PostgreSQL schema introspection for `--postgres` (catalog → synthetic DDL → SQL extractor, with foreign keys emitted directly) | `cmd_build()`, `introspect_postgres()` |
 | `graphify-serve` | MCP server with 15 query tools over JSON-RPC 2.0 stdio | `dispatch()`, `smart_summary()` |
-| `graphify-watch` | File monitoring with debounce, incremental rebuild | `watch()` |
+| `graphify-watch` | File monitoring with debounce, incremental rebuild; the shared AST-only rebuild behind `watch` and `update`, including the shrink guard and community-name carry-over | `watch_directory()`, `rebuild_code()` |
 | `graphify-hooks` | Git hook install/uninstall (post-commit, post-checkout) | `install()`, `uninstall()` |
 | `graphify-media` | Audio/video transcription via external Whisper tools (whisper.cpp, openai-whisper, custom), content-hash transcript cache, yt-dlp URL audio | `transcribe()`, `discover_transcriber()`, `fetch_url_audio()` |
 | `graphify-benchmark` | Token efficiency measurement | `benchmark()` |

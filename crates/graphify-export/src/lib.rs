@@ -17,7 +17,7 @@ pub mod svg;
 pub mod tree;
 pub mod wiki;
 
-pub use callflow::{CallflowOptions, export_callflow_html};
+pub use callflow::{CallflowOptions, export_callflow_html, git_short_commit};
 pub use cypher::export_cypher;
 pub use falkordb::export_falkordb;
 pub use graphml::export_graphml;

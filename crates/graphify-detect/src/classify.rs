@@ -49,6 +49,14 @@ pub struct DetectedFile {
 /// Classify a file by its extension (and, for ambiguous cases, a peek at its
 /// content).  Returns `None` if the file type is not recognised.
 pub fn classify_file(path: &Path) -> Option<FileType> {
+    // Package manifests describe project structure, so they belong on the code
+    // path regardless of extension: `.toml`, `.mod` and `.xml` are not code
+    // extensions at all, and `apm.yml` would otherwise be classified as a
+    // document and sent to the LLM instead of the manifest parser.
+    if graphify_core::manifests::is_package_manifest_path(path) {
+        return Some(FileType::Code);
+    }
+
     let ext = extension_lower(path)?;
 
     if CODE_EXTENSIONS.contains(&ext.as_str()) {

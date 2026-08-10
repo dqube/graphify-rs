@@ -91,6 +91,8 @@ pub struct CallflowOptions {
     pub lang: String,
     /// Display name for the project; inferred from the output path when empty.
     pub project_name: String,
+    /// Git commit the graph was built at; shown in the subtitle when set.
+    pub built_at_commit: String,
 }
 
 impl Default for CallflowOptions {
@@ -102,8 +104,27 @@ impl Default for CallflowOptions {
             max_diagram_edges: 24,
             lang: "auto".to_string(),
             project_name: String::new(),
+            built_at_commit: String::new(),
         }
     }
+}
+
+/// Short commit hash of `repo_root`'s HEAD, if it is a git checkout.
+///
+/// Best-effort by design: a graph built outside a repository simply gets no
+/// commit line in the subtitle.
+pub fn git_short_commit(repo_root: &Path) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .args(["rev-parse", "--short", "HEAD"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let hash = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!hash.is_empty()).then_some(hash)
 }
 
 // ──────────────────────────────────────────────
@@ -803,18 +824,67 @@ fn keyword_score(text: &str, keywords: &[&str]) -> usize {
     score
 }
 
+/// Does this symbol name look like a test?
+///
+/// A section headed "strips_dots_and_underscores()" reads as a bug, not as
+/// architecture — test symbols must never name a section, no matter how
+/// central they are to their community's word counts.
+fn label_is_testish(label: &str) -> bool {
+    let name = label.trim().trim_end_matches("()");
+    let lower = name.to_ascii_lowercase();
+    lower.starts_with("test_")
+        || lower.ends_with("_test")
+        || lower.contains("::tests::")
+        || lower.contains("::test::")
+}
+
+/// Does this path look like a test file?
+///
+/// Catches the `#[cfg(test)]` case too: a test named without any `test`
+/// affix still lives in a file (or module path) that says so.
+fn file_is_testish(path: &str) -> bool {
+    let lower = path.replace('\\', "/").to_ascii_lowercase();
+    let filename = lower.rsplit('/').next().unwrap_or(&lower);
+    lower.contains("/tests/")
+        || lower.contains("/test/")
+        || lower.starts_with("tests/")
+        || lower.starts_with("test/")
+        || filename.starts_with("test_")
+        || filename.ends_with("_test.rs")
+        || filename.ends_with("_tests.rs")
+        || filename.ends_with(".test.ts")
+        || filename.ends_with(".test.tsx")
+        || filename.ends_with(".test.js")
+        || filename.ends_with(".spec.ts")
+        || filename.ends_with(".spec.js")
+        || filename.ends_with("_test.go")
+        || filename.ends_with("_test.py")
+}
+
 /// Pick representative words from labels and file names.
 fn section_keywords(nodes: &[&GraphNode], limit: usize) -> Vec<String> {
     const STOPWORDS: &[&str] = &[
         "the", "and", "for", "with", "from", "this", "that", "class", "function", "method", "file",
         "src", "lib", "core", "index", "main", "init", "py", "ts", "tsx", "js", "jsx", "go", "rs",
-        "java", "html", "css",
+        "java", "html", "css", "test", "tests",
     ];
+    // Test symbols would dominate the word counts of test-heavy communities
+    // and name the section after fixtures; only fall back to them when the
+    // community is nothing but tests.
+    let non_test: Vec<&GraphNode> = nodes
+        .iter()
+        .copied()
+        .filter(|n| !label_is_testish(&n.label) && !file_is_testish(&n.source_file))
+        .collect();
+    let nodes: &[&GraphNode] = if non_test.is_empty() { nodes } else { &non_test };
     // First-seen order breaks count ties, matching Counter.most_common.
     let mut counts: HashMap<String, usize> = HashMap::new();
     let mut order: Vec<String> = Vec::new();
     for node in nodes {
-        let text = format!("{} {}", node.label, node.source_file).replace(['/', '_', '-'], " ");
+        // '.' splits too, so `diagnose.rs` yields `diagnose` + the `rs`
+        // stopword instead of the glued-together word "diagnosers".
+        let text =
+            format!("{} {}", node.label, node.source_file).replace(['/', '_', '-', '.'], " ");
         for raw in text.split_whitespace() {
             let word: String = raw
                 .chars()
@@ -863,6 +933,13 @@ fn label_for_community(
     if let Ok(num) = cid.parse::<usize>()
         && let Some(label) = labels.get(&num)
         && !label.is_empty()
+        && !label_is_testish(label)
+        // A bare symbol name (`strips_dots_and_underscores()`) is the
+        // first-node fallback, not a curated name — and `#[cfg(test)]` fns
+        // carry no test marker in the graph, so a testish check alone cannot
+        // catch them. Any `foo()` headline reads as a bug in an architecture
+        // document; prefer the keyword title, which is always presentable.
+        && !label.ends_with("()")
     {
         return label.clone();
     }
@@ -2110,29 +2187,64 @@ fn generate_section_cards(
     )
 }
 
+/// Split a markdown table row into trimmed cells, or `None` for non-rows and
+/// the `|---|---|` separator line.
+fn table_row_cells(line: &str) -> Option<Vec<&str>> {
+    let inner = line.strip_prefix('|')?;
+    let cells: Vec<&str> = inner
+        .strip_suffix('|')
+        .unwrap_or(inner)
+        .split('|')
+        .map(str::trim)
+        .collect();
+    let is_separator = cells
+        .iter()
+        .all(|c| !c.is_empty() && c.chars().all(|ch| ch == '-' || ch == ':'));
+    if is_separator { None } else { Some(cells) }
+}
+
 /// Compact highlights card pulled from `GRAPH_REPORT.md`.
+///
+/// Two report dialects are in the wild: the Python generator writes `- ` bullet
+/// summaries and `1.`-numbered god nodes, while our `report.rs` writes markdown
+/// tables under emoji-prefixed headings (`## 🌟 God Nodes (Most Connected)`).
+/// Both must parse, or the card silently vanishes for one of them.
 fn report_highlights(report_text: &str, lang: &str) -> String {
     if report_text.trim().is_empty() {
         return String::new();
     }
-    let mut keep: Vec<&str> = Vec::new();
+    let mut keep: Vec<String> = Vec::new();
     let mut in_gods = false;
     let mut in_summary = false;
     for line in report_text.lines() {
         let stripped = line.trim();
-        if stripped.starts_with("## ") {
-            in_summary = stripped == "## Summary";
-            in_gods = stripped.starts_with("## God Nodes");
+        if let Some(rest) = stripped.strip_prefix("## ") {
+            // Headings may carry a leading emoji; match on the words.
+            let cleaned = rest.trim_start_matches(|c: char| !c.is_ascii_alphanumeric());
+            in_summary = cleaned == "Summary";
+            in_gods = cleaned.starts_with("God Nodes");
             continue;
         }
-        if in_summary && let Some(rest) = stripped.strip_prefix("- ") {
-            keep.push(rest);
-        } else if in_gods
-            && stripped.split_once('.').is_some_and(|(head, _)| {
+        if in_summary {
+            if let Some(rest) = stripped.strip_prefix("- ") {
+                keep.push(rest.to_string());
+            } else if let Some(cells) = table_row_cells(stripped)
+                && cells.len() >= 2
+                && cells[0] != "Metric"
+            {
+                keep.push(format!("{}: {}", cells[0], cells[1]));
+            }
+        } else if in_gods {
+            if stripped.split_once('.').is_some_and(|(head, _)| {
                 !head.is_empty() && head.bytes().all(|b| b.is_ascii_digit())
-            })
-        {
-            keep.push(stripped);
+            }) {
+                keep.push(stripped.to_string());
+            } else if let Some(cells) = table_row_cells(stripped)
+                && cells.len() >= 2
+                && cells[0] != "Node"
+            {
+                keep.push(format!("{} — degree {}", cells[0], cells[1]));
+            }
         }
         if keep.len() >= 6 {
             break;
@@ -2379,7 +2491,7 @@ pub fn export_callflow_html(
     } else {
         format!("{project_name} — Complete Call Flow & Architecture Documentation")
     };
-    let subtitle = if is_zh(&lang) {
+    let mut subtitle = if is_zh(&lang) {
         format!(
             "由 graphify 知识图谱生成：{} 个节点、{} 条边、{} 个社区。",
             nodes.len(),
@@ -2394,6 +2506,12 @@ pub fn export_callflow_html(
             comm_idx.len()
         )
     };
+    if !options.built_at_commit.is_empty() {
+        // First 7 chars, matching Python's `commit[:7]` — chars, not bytes,
+        // so a malformed value cannot panic on a boundary.
+        let short: String = options.built_at_commit.chars().take(7).collect();
+        let _ = write!(subtitle, " Commit: {short}");
+    }
 
     let mut html = String::with_capacity(64 * 1024);
     let _ = write!(
@@ -2736,6 +2854,125 @@ mod tests {
         assert!(card.contains("100 nodes"));
         assert!(card.contains("42 edges"));
         assert!(card.contains("main()"));
+    }
+
+    #[test]
+    fn report_highlights_parses_our_table_report() {
+        // The exact shape report.rs writes: markdown tables under
+        // emoji-prefixed headings, not bullets under plain ones.
+        let report = "# Report\n\n## Summary\n\n\
+            | Metric | Value |\n|--------|-------|\n\
+            | Nodes | 4074 |\n| Edges | 5951 |\n\n\
+            ## 🌟 God Nodes (Most Connected)\n\n\
+            | Node | Degree | Community |\n|------|--------|-----------|\n\
+            | KnowledgeGraph | 120 | 3 |\n";
+        let card = report_highlights(report, "en");
+        assert!(card.contains("Nodes: 4074"), "got: {card}");
+        assert!(card.contains("Edges: 5951"), "got: {card}");
+        assert!(card.contains("KnowledgeGraph — degree 120"), "got: {card}");
+        // Header and separator rows must not leak into the card.
+        assert!(!card.contains("Metric"), "got: {card}");
+        assert!(!card.contains("---"), "got: {card}");
+    }
+
+    #[test]
+    fn subtitle_includes_commit_when_provided() {
+        let dir = tempfile::tempdir().unwrap();
+        let kg = sample_graph();
+        let opts = CallflowOptions {
+            project_name: "demo".to_string(),
+            built_at_commit: "abc1234def".to_string(),
+            ..Default::default()
+        };
+
+        let path = export_callflow_html(&kg, &labels(), dir.path(), &opts).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+
+        assert!(content.contains("Commit: abc1234"), "7-char short hash");
+        assert!(!content.contains("Commit: abc1234d"), "must truncate to 7");
+    }
+
+    #[test]
+    fn section_names_never_use_bare_symbol_labels() {
+        // A community whose label is the first-node fallback — a raw test
+        // function name. `#[cfg(test)]` fns carry no test marker in the graph,
+        // so the ()-suffix is the only reliable signal.
+        let mut kg = KnowledgeGraph::new();
+        for n in [
+            node(
+                "id::strips",
+                "strips_dots_and_underscores()",
+                "crates/graphify-core/src/id.rs",
+                NodeType::Function,
+                0,
+            ),
+            node(
+                "id::make_id",
+                "make_id",
+                "crates/graphify-core/src/id.rs",
+                NodeType::Function,
+                0,
+            ),
+        ] {
+            kg.add_node(n).unwrap();
+        }
+        kg.add_edge(edge("id::strips", "id::make_id", "calls")).unwrap();
+
+        let labels = HashMap::from([(0, "strips_dots_and_underscores()".to_string())]);
+        let nodes = kg.nodes();
+        let comm_idx = build_community_index(&nodes);
+        let sections = derive_sections(&comm_idx, &labels, "en", 15);
+
+        for s in &sections {
+            assert!(
+                !s.name.contains("strips_dots_and_underscores()"),
+                "bare symbol leaked into section title: {}",
+                s.name
+            );
+        }
+    }
+
+    #[test]
+    fn section_keywords_skip_test_symbols() {
+        let test_nodes = [
+            node(
+                "t1",
+                "test_roundtrip",
+                "tests/roundtrip_test.rs",
+                NodeType::Function,
+                0,
+            ),
+            node(
+                "real",
+                "serialize_graph",
+                "src/serialize.rs",
+                NodeType::Function,
+                0,
+            ),
+        ];
+        let refs: Vec<&GraphNode> = test_nodes.iter().collect();
+        let words = section_keywords(&refs, 3);
+        assert!(
+            words.iter().all(|w| !w.contains("test") && !w.contains("roundtrip")),
+            "test vocabulary leaked into keywords: {words:?}"
+        );
+        assert!(words.iter().any(|w| w == "serialize"), "got {words:?}");
+    }
+
+    #[test]
+    fn testish_detectors_cover_common_shapes() {
+        assert!(label_is_testish("test_parse"));
+        assert!(label_is_testish("parse_test()"));
+        assert!(label_is_testish("crate::tests::helper"));
+        assert!(!label_is_testish("attest")); // no false positive on substrings
+        assert!(!label_is_testish("latest_version"));
+
+        assert!(file_is_testish("tests/integration.rs"));
+        assert!(file_is_testish("src/foo/parser_test.rs"));
+        assert!(file_is_testish("web/app.test.tsx"));
+        assert!(file_is_testish("pkg/handler_test.go"));
+        assert!(!file_is_testish("src/attestation.rs"));
+        assert!(!file_is_testish("src/contest/mod.rs"));
     }
 
     #[test]

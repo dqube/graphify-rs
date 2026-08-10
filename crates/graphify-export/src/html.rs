@@ -11,7 +11,7 @@ use tracing::{info, warn};
 
 #[path = "html_templates.rs"]
 mod html_templates;
-use html_templates::{build_html_template, escape_html, escape_js};
+use html_templates::{VIS_SCRIPT_TAG, build_html_template, escape_html, escape_js, js_safe_json};
 
 const COMMUNITY_COLORS: &[&str] = &[
     "#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F", "#EDC948", "#B07AA1", "#FF9DA7",
@@ -53,87 +53,128 @@ pub fn export_html(
     };
 
     let node_community = graphify_core::build_node_to_community(communities);
-    let mut vis_nodes = String::from("[");
-    let mut first = true;
-    for node in graph.nodes() {
-        if !included_nodes.contains(&node.id) {
-            continue;
-        }
-        if !first {
-            vis_nodes.push(',');
-        }
-        first = false;
-        let cid = node
-            .community
-            .or_else(|| node_community.get(node.id.as_str()).copied());
-        let color = cid.map_or("#888888", |c| COMMUNITY_COLORS[c % COMMUNITY_COLORS.len()]);
-        let degree = graph.degree(&node.id);
-        let size = 8.0 + (degree as f64).sqrt() * 4.0;
-        let label_escaped = escape_js(&node.label);
-        let title_escaped = escape_js(&format!(
-            "{} ({})\nFile: {}\nType: {}\nDegree: {}",
-            node.label, node.id, node.source_file, node.node_type, degree
-        ));
-        write!(
-            vis_nodes,
-            r#"{{id:"{}",label:"{}",title:"{}",color:"{}",community:{},size:{:.1}}}"#,
-            escape_js(&node.id),
-            label_escaped,
-            title_escaped,
-            color,
-            cid.unwrap_or(0),
-            size,
-        )?;
-    }
-    vis_nodes.push(']');
 
-    let mut vis_edges = String::from("[");
-    first = true;
-    for edge in graph.edges() {
-        if !included_nodes.contains(&edge.source) || !included_nodes.contains(&edge.target) {
-            continue;
-        }
-        if !first {
-            vis_edges.push(',');
-        }
-        first = false;
-        let dashes = match edge.confidence {
-            Confidence::Extracted => "false",
-            Confidence::Inferred | Confidence::Ambiguous => "true",
-        };
-        let width = 1.0 + edge.confidence_score * 2.0;
-        let title_escaped = escape_js(&format!(
-            "{}: {} → {}\nConfidence: {} ({:.2})\nFile: {}",
-            edge.relation,
-            edge.source,
-            edge.target,
-            edge.confidence,
-            edge.confidence_score,
-            edge.source_file
-        ));
-        write!(
-            vis_edges,
-            r#"{{from:"{}",to:"{}",label:"{}",title:"{}",dashes:{},width:{:.1}}}"#,
-            escape_js(&edge.source),
-            escape_js(&edge.target),
-            escape_js(&edge.relation),
-            title_escaped,
-            dashes,
-            width,
-        )?;
-    }
-    vis_edges.push(']');
+    // One degree pass: sizes and label visibility are both relative to the
+    // best-connected node on the page, so max_degree must be known before
+    // any node is serialized.
+    let rendered: Vec<(&graphify_core::model::GraphNode, usize, Option<usize>)> = graph
+        .nodes()
+        .into_iter()
+        .filter(|n| included_nodes.contains(&n.id))
+        .map(|n| {
+            let cid = n
+                .community
+                .or_else(|| node_community.get(n.id.as_str()).copied());
+            (n, graph.degree(&n.id), cid)
+        })
+        .collect();
+    let max_degree = rendered.iter().map(|(_, d, _)| *d).max().unwrap_or(1).max(1) as f64;
 
-    let mut legend_html = String::new();
-    for (&cid, label) in community_labels {
-        let color = COMMUNITY_COLORS[cid % COMMUNITY_COLORS.len()];
-        write!(
-            legend_html,
-            r#"<div class="legend-item"><span class="legend-dot" style="background:{}"></span>{}</div>"#,
-            color,
-            escape_html(label),
-        )?;
-    }
+    let vis_nodes: Vec<serde_json::Value> = rendered
+        .iter()
+        .map(|(node, degree, cid)| {
+            let degree = *degree;
+            let color = cid.map_or("#888888", |c| COMMUNITY_COLORS[c % COMMUNITY_COLORS.len()]);
+            // Normalized 10..40 so one mega-hub cannot dwarf the page, and
+            // labels only on genuine hubs — every other name lives in the
+            // tooltip and info panel. Full labeling is a wall of text past
+            // ~150 nodes.
+            let size = 10.0 + 30.0 * degree as f64 / max_degree;
+            let font_size = if degree as f64 >= 0.15 * max_degree { 12 } else { 0 };
+            let community_name = cid.map(|c| {
+                community_labels
+                    .get(&c)
+                    .cloned()
+                    .unwrap_or_else(|| format!("Community {c}"))
+            });
+            // vis renders titles as HTML: escape the parts, join with <br>.
+            let title = format!(
+                "<b>{}</b><br>{}<br>Type: {} · Degree: {}",
+                escape_html(&node.label),
+                escape_html(&node.source_file),
+                escape_html(&node.node_type.to_string()),
+                degree
+            );
+            serde_json::json!({
+                "id": node.id,
+                "label": node.label,
+                "title": title,
+                "color": {
+                    "background": color,
+                    "border": color,
+                    "highlight": { "background": "#ffffff", "border": color },
+                },
+                "size": (size * 10.0).round() / 10.0,
+                "font": { "size": font_size, "color": "#e2e8f0" },
+                "community": cid.unwrap_or(0),
+                "community_name": community_name,
+                "source_file": node.source_file,
+                "file_type": node.node_type.to_string(),
+                "degree": degree,
+            })
+        })
+        .collect();
+
+    let vis_edges: Vec<serde_json::Value> = graph
+        .edges()
+        .into_iter()
+        .filter(|e| included_nodes.contains(&e.source) && included_nodes.contains(&e.target))
+        .map(|edge| {
+            let extracted = matches!(edge.confidence, Confidence::Extracted);
+            let title = format!(
+                "{}: {} → {}<br>Confidence: {} ({:.2})",
+                escape_html(&edge.relation),
+                escape_html(&edge.source),
+                escape_html(&edge.target),
+                edge.confidence,
+                edge.confidence_score
+            );
+            serde_json::json!({
+                "from": edge.source,
+                "to": edge.target,
+                "title": title,
+                "relation": edge.relation,
+                "dashes": !extracted,
+                "width": ((1.0 + edge.confidence_score * 2.0) * 10.0).round() / 10.0,
+                // Inferred edges recede instead of competing with extracted ones.
+                "color": {
+                    "color": "#475569",
+                    "highlight": "#38bdf8",
+                    "hover": "#38bdf8",
+                    "opacity": if extracted { 0.7 } else { 0.35 },
+                },
+            })
+        })
+        .collect();
+
+    // The legend lists every community in the graph, not every community
+    // that happens to have a name: a graph that never went through `label`
+    // has an empty labels map, and keying on it rendered an empty legend.
+    // Sorted by id so the legend is stable between builds; a HashMap walk
+    // reshuffled it on every run.
+    let mut legend_cids: Vec<usize> = communities
+        .keys()
+        .chain(community_labels.keys())
+        .copied()
+        .collect::<HashSet<usize>>()
+        .into_iter()
+        .collect();
+    legend_cids.sort_unstable();
+    let legend: Vec<serde_json::Value> = legend_cids
+        .iter()
+        .map(|&cid| {
+            let label = community_labels
+                .get(&cid)
+                .cloned()
+                .unwrap_or_else(|| format!("Community {cid}"));
+            serde_json::json!({
+                "cid": cid,
+                "color": COMMUNITY_COLORS[cid % COMMUNITY_COLORS.len()],
+                "label": label,
+                "count": communities.get(&cid).map_or(0, Vec::len),
+            })
+        })
+        .collect();
 
     let mut hyperedge_html = String::new();
     for he in &graph.hyperedges {
@@ -142,7 +183,7 @@ pub fn export_html(
             "<li><b>{}</b>: {} ({})</li>",
             escape_html(&he.relation),
             escape_html(&he.label),
-            he.nodes.join(", "),
+            escape_html(&he.nodes.join(", ")),
         )?;
     }
 
@@ -157,13 +198,21 @@ pub fn export_html(
         String::new()
     };
 
+    let stats_html = format!(
+        "{} nodes &middot; {} edges &middot; {} communities",
+        rendered.len(),
+        vis_edges.len(),
+        communities.len(),
+    );
+
     let is_large = included_nodes.len() > 500;
     let html = build_html_template(
-        &vis_nodes,
-        &vis_edges,
-        &legend_html,
+        &js_safe_json(&serde_json::Value::Array(vis_nodes)),
+        &js_safe_json(&serde_json::Value::Array(vis_edges)),
+        &js_safe_json(&serde_json::Value::Array(legend)),
         &hyperedge_html,
         &prune_banner,
+        &stats_html,
         is_large,
     );
 
@@ -292,11 +341,10 @@ fn generate_overview(
             .unwrap_or_else(|| format!("Community {cid}"));
         let color = COMMUNITY_COLORS[cid % COMMUNITY_COLORS.len()];
         let size = 20.0 + (members.len() as f64).sqrt() * 5.0;
-        let title = format!(
-            "{} ({} nodes)\\nClick to view details",
-            label,
-            members.len()
-        );
+        // A real newline: escape_js turns it into the single `\n` vis expects.
+        // The old literal `\\n` came out doubled and rendered as text.
+        // "Double-click" because navigation is bound to doubleClick below.
+        let title = format!("{} ({} nodes)\nDouble-click to open", label, members.len());
         write!(
             vis_nodes,
             r#"{{id:{cid},label:"{label} ({count})",title:"{title}",color:"{color}",size:{size:.1},url:"community_{cid}.html"}}"#,
@@ -364,25 +412,25 @@ fn generate_overview(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Knowledge Graph — Overview</title>
-<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+{VIS_SCRIPT_TAG}
 <style>
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-body {{ background: #0f0f1a; color: #e0e0e0; font-family: 'Segoe UI', system-ui, sans-serif; display: flex; height: 100vh; overflow: hidden; }}
-#sidebar {{ width: 320px; min-width: 320px; background: #1a1a2e; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; border-right: 1px solid #2a2a4a; }}
+body {{ background: #0f172a; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; height: 100vh; overflow: hidden; }}
+#sidebar {{ width: 320px; min-width: 320px; background: #1e293b; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; border-right: 1px solid #334155; }}
 #sidebar h2 {{ font-size: 18px; color: #76B7B2; margin-bottom: 4px; }}
 #sidebar h3 {{ font-size: 14px; color: #9ca3af; margin-bottom: 8px; }}
-.nav-link {{ display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 6px 8px; border-radius: 4px; color: #e0e0e0; text-decoration: none; }}
-.nav-link:hover {{ background: #2a2a4a; }}
+.nav-link {{ display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 6px 8px; border-radius: 4px; color: #e2e8f0; text-decoration: none; }}
+.nav-link:hover {{ background: #334155; }}
 .legend-dot {{ width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }}
 #graph-container {{ flex: 1; position: relative; }}
-#info {{ background: #0f0f1a; border-radius: 8px; padding: 12px; font-size: 13px; color: #9ca3af; }}
+#info {{ background: #0f172a; border-radius: 8px; padding: 12px; font-size: 13px; color: #9ca3af; }}
 </style>
 </head>
 <body>
 <div id="sidebar">
     <div>
         <h2>🧠 Overview</h2>
-        <p style="font-size:12px;color:#666;">Each node is a community. Click to view details.</p>
+        <p style="font-size:12px;color:#666;">Each node is a community. Double-click to open it.</p>
     </div>
     <div id="info">{node_count} nodes, {edge_count} edges, {community_count} communities</div>
     <div>
@@ -445,18 +493,24 @@ fn generate_community_page(
     let member_set: HashSet<&str> = members.iter().map(std::string::String::as_str).collect();
     let color = COMMUNITY_COLORS[cid % COMMUNITY_COLORS.len()];
 
+    // Same 10..40 normalization as the main page: relative to this page's
+    // best-connected member, so a hub cannot dwarf its own community view.
+    let page_nodes: Vec<(&graphify_core::model::GraphNode, usize)> = graph
+        .nodes()
+        .into_iter()
+        .filter(|n| member_set.contains(n.id.as_str()))
+        .map(|n| (n, graph.degree(&n.id)))
+        .collect();
+    let max_deg = page_nodes.iter().map(|(_, d)| *d).max().unwrap_or(1).max(1) as f64;
+
     let mut vis_nodes = String::from("[");
     let mut first = true;
-    for node in graph.nodes() {
-        if !member_set.contains(node.id.as_str()) {
-            continue;
-        }
+    for (node, degree) in &page_nodes {
         if !first {
             vis_nodes.push(',');
         }
         first = false;
-        let degree = graph.degree(&node.id);
-        let size = 8.0 + (degree as f64).sqrt() * 4.0;
+        let size = 10.0 + 30.0 * *degree as f64 / max_deg;
         write!(
             vis_nodes,
             r#"{{id:"{}",label:"{}",title:"{}",color:"{}",size:{:.1}}}"#,
@@ -556,22 +610,22 @@ fn generate_community_page(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
-<script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+{VIS_SCRIPT_TAG}
 <style>
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-body {{ background: #0f0f1a; color: #e0e0e0; font-family: 'Segoe UI', system-ui, sans-serif; display: flex; height: 100vh; overflow: hidden; }}
-#sidebar {{ width: 320px; min-width: 320px; background: #1a1a2e; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; border-right: 1px solid #2a2a4a; }}
+body {{ background: #0f172a; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; height: 100vh; overflow: hidden; }}
+#sidebar {{ width: 320px; min-width: 320px; background: #1e293b; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; border-right: 1px solid #334155; }}
 #sidebar h2 {{ font-size: 18px; color: {color}; margin-bottom: 4px; }}
 #sidebar h3 {{ font-size: 14px; color: #9ca3af; margin-bottom: 8px; }}
-.nav-link {{ display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 6px 8px; border-radius: 4px; color: #e0e0e0; text-decoration: none; }}
-.nav-link:hover {{ background: #2a2a4a; }}
+.nav-link {{ display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 6px 8px; border-radius: 4px; color: #e2e8f0; text-decoration: none; }}
+.nav-link:hover {{ background: #334155; }}
 .legend-dot {{ width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }}
 #graph-container {{ flex: 1; position: relative; }}
-#search {{ width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #3a3a5a; background: #0f0f1a; color: #e0e0e0; font-size: 14px; }}
+#search {{ width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 14px; }}
 #search:focus {{ outline: none; border-color: {color}; }}
-#info-panel {{ background: #0f0f1a; border-radius: 8px; padding: 12px; font-size: 13px; line-height: 1.6; min-height: 100px; }}
+#info-panel {{ background: #0f172a; border-radius: 8px; padding: 12px; font-size: 13px; line-height: 1.6; min-height: 100px; }}
 #info-panel .prop {{ color: #9ca3af; }}
-#info-panel .val {{ color: #e0e0e0; }}
+#info-panel .val {{ color: #e2e8f0; }}
 </style>
 </head>
 <body>
@@ -606,12 +660,13 @@ body {{ background: #0f0f1a; color: #e0e0e0; font-family: 'Segoe UI', system-ui,
     }};
     var network = new vis.Network(container, {{ nodes: nodes, edges: edges }}, options);
     network.on('stabilizationIterationsDone', function() {{ network.setOptions({{ physics: {{ enabled: false }} }}); }});
+    var esc = function(s) {{ var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }};
     network.on('click', function(params) {{
         var panel = document.getElementById('info-panel');
         if (params.nodes.length > 0) {{
             var node = nodes.get(params.nodes[0]);
             if (node) {{
-                panel.innerHTML = '<div><span class="prop">Label:</span> <span class="val">' + node.label + '</span></div><div><span class="prop">ID:</span> <span class="val">' + node.id + '</span></div>';
+                panel.innerHTML = '<div><span class="prop">Label:</span> <span class="val">' + esc(node.label) + '</span></div><div><span class="prop">ID:</span> <span class="val">' + esc(node.id) + '</span></div>';
                 network.focus(params.nodes[0], {{ scale: 1.2, animation: true }});
             }}
         }}
@@ -708,9 +763,170 @@ mod tests {
         assert!(path.exists());
 
         let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("vis-network"));
         assert!(content.contains("NodeA"));
         assert!(content.contains("forceAtlas2Based"));
+
+        // Pinned CDN with integrity, not floating latest.
+        assert!(content.contains("vis-network@9.1.6"));
+        assert!(content.contains(r#"integrity="sha384-Ux6phic"#));
+
+        // Selection flash, arrows, and opacity tiers reach the page.
+        assert!(content.contains(r##""highlight":{"background":"#ffffff""##));
+        assert!(content.contains("scaleFactor: 0.5"));
+        assert!(content.contains("selectionWidth: 3"));
+        assert!(content.contains("avoidOverlap: 0.8"));
+        assert!(content.contains(r#""opacity":0.35"#), "inferred edge fades");
+
+        // Sidebar chrome: stats footer, filterable legend, search dropdown.
+        assert!(content.contains("2 nodes &middot; 1 edges &middot; 2 communities"));
+        assert!(content.contains("Select All"));
+        assert!(content.contains(r#"id="search-results""#));
+
+        // The stabilization timeout must also stop the simulation, not just
+        // hide the spinner over a still-running one.
+        assert!(content.contains("setTimeout(freeze, 10000)"));
+        assert!(content.contains("physics: { enabled: false }"));
+    }
+
+    #[test]
+    fn labels_are_reserved_for_hubs() {
+        // A 10-node star: the hub has degree 9, every leaf degree 1, and
+        // 1 < 0.15 * 9 — so only the hub's name is drawn on the canvas.
+        let mut kg = KnowledgeGraph::new();
+        let mut members: Vec<String> = Vec::new();
+        for i in 0..10 {
+            let id = format!("n{i}");
+            members.push(id.clone());
+            kg.add_node(GraphNode {
+                id,
+                label: format!("Symbol{i}"),
+                source_file: "star.rs".into(),
+                source_location: None,
+                node_type: NodeType::Function,
+                community: Some(0),
+                extra: HashMap::new(),
+            })
+            .unwrap();
+        }
+        for i in 1..10 {
+            kg.add_edge(GraphEdge {
+                source: "n0".into(),
+                target: format!("n{i}"),
+                relation: "calls".into(),
+                confidence: Confidence::Extracted,
+                confidence_score: 1.0,
+                source_file: "star.rs".into(),
+                source_location: None,
+                weight: 1.0,
+                provenance: None,
+                extra: HashMap::new(),
+            })
+            .unwrap();
+        }
+        let communities: HashMap<usize, Vec<String>> = [(0, members)].into();
+        let labels: HashMap<usize, String> = [(0, "Star".into())].into();
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = export_html(&kg, &communities, &labels, dir.path(), None).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+
+        assert!(
+            content.contains(r##""font":{"color":"#e2e8f0","size":12}"##),
+            "hub keeps its label"
+        );
+        assert!(content.contains(r#""size":0"#), "leaves hide theirs");
+        // Sizes normalized: hub at the 40 cap, leaves near the 10 floor.
+        assert!(content.contains(r#""size":40.0"#) || content.contains(r#""size":40"#));
+        assert!(content.contains(r#""size":13.3"#), "leaf size 10 + 30*(1/9)");
+    }
+
+    #[test]
+    fn hostile_labels_cannot_break_out_of_the_script_block() {
+        let mut kg = KnowledgeGraph::new();
+        kg.add_node(GraphNode {
+            id: "evil".into(),
+            label: "</script><script>alert(1)</script>".into(),
+            source_file: "x.rs".into(),
+            source_location: None,
+            node_type: NodeType::Function,
+            community: Some(0),
+            extra: HashMap::new(),
+        })
+        .unwrap();
+        let communities: HashMap<usize, Vec<String>> = [(0, vec!["evil".into()])].into();
+        let labels: HashMap<usize, String> = [(0, "C".into())].into();
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = export_html(&kg, &communities, &labels, dir.path(), None).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+
+        assert!(
+            !content.contains("</script><script>alert"),
+            "raw terminator sequence must never appear in the page"
+        );
+        assert!(content.contains(r"<\/script>"), "guard applied inside JSON");
+    }
+
+    #[test]
+    fn legend_is_sorted_with_member_counts() {
+        let dir = tempfile::tempdir().unwrap();
+        let kg = sample_graph();
+        // Insertion order 1-then-0 must not leak into the page.
+        let communities: HashMap<usize, Vec<String>> =
+            [(1, vec!["b".into()]), (0, vec!["a".into()])].into();
+        let labels: HashMap<usize, String> =
+            [(1, "Cluster B".into()), (0, "Cluster A".into())].into();
+
+        let path = export_html(&kg, &communities, &labels, dir.path(), None).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+
+        let zero = content.find(r#""cid":0"#).expect("legend entry for cid 0");
+        let one = content.find(r#""cid":1"#).expect("legend entry for cid 1");
+        assert!(zero < one, "legend must be sorted by community id");
+        assert!(content.contains(r#""count":1"#));
+    }
+
+    #[test]
+    fn sidebar_works_even_when_the_cdn_script_fails() {
+        // The legend and search must be wired up BEFORE anything touches the
+        // vis global: with the CDN blocked (offline, embedded previews), the
+        // sidebar must still render and the page must show a readable error
+        // instead of dying at `new vis.DataSet` with an empty legend.
+        let dir = tempfile::tempdir().unwrap();
+        let kg = sample_graph();
+        let communities: HashMap<usize, Vec<String>> =
+            [(0, vec!["a".into()]), (1, vec!["b".into()])].into();
+
+        let path = export_html(&kg, &communities, &HashMap::new(), dir.path(), None).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+
+        let legend = content.find("legendDiv.innerHTML").expect("legend render");
+        let guard = content
+            .find("typeof vis === 'undefined'")
+            .expect("CDN guard");
+        let first_vis_use = content.find("new vis.DataSet").expect("vis usage");
+        assert!(
+            legend < guard && guard < first_vis_use,
+            "legend must render before the CDN guard, and the guard before any vis call"
+        );
+        assert!(content.contains("Could not load the graph library"));
+    }
+
+    #[test]
+    fn legend_lists_unlabeled_communities_with_fallback_names() {
+        // `export` on a graph that never went through `label` has an empty
+        // labels map; the legend must still show every community.
+        let dir = tempfile::tempdir().unwrap();
+        let kg = sample_graph();
+        let communities: HashMap<usize, Vec<String>> =
+            [(0, vec!["a".into()]), (1, vec!["b".into()])].into();
+
+        let path = export_html(&kg, &communities, &HashMap::new(), dir.path(), None).unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+
+        assert!(!content.contains("var LEGEND = [];"), "legend must not be empty");
+        assert!(content.contains(r#""label":"Community 0""#));
+        assert!(content.contains(r#""label":"Community 1""#));
     }
 
     #[test]
