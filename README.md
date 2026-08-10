@@ -13,7 +13,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
 
-[中文文档](README_CN.md) | [CLI Reference](docs/CLI.md) | [Architecture](docs/ARCHITECTURE.md) | [Changelog](CHANGELOG.md)
+[CLI Reference](docs/CLI.md) | [Architecture](docs/ARCHITECTURE.md) | [Changelog](CHANGELOG.md)
 
 </div>
 
