@@ -371,7 +371,7 @@ pub fn rebuild_code(
     std::fs::create_dir_all(output_dir)
         .map_err(|e| WatchError::Rebuild(format!("create output dir: {e}")))?;
 
-    let _ = graphify_export::export_json(&graph, output_dir);
+    let _ = graphify_export::export_json(&graph, output_dir, Some(&community_labels));
     let _ = graphify_export::export_html(&graph, &communities, &community_labels, output_dir, None);
     let _ = graphify_export::export_graphml(&graph, output_dir);
     let _ = graphify_export::export_cypher(&graph, output_dir);

@@ -63,7 +63,7 @@ fn main() -> anyhow::Result<()> {
 
     // 8. Export
     let output_dir = PathBuf::from("graphify-rs-out");
-    let json_path = graphify_export::export_json(&graph, &output_dir)?;
+    let json_path = graphify_export::export_json(&graph, &output_dir, None)?;
     println!("\nExported to: {}", json_path.display());
 
     Ok(())

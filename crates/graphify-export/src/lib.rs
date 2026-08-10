@@ -8,6 +8,7 @@ pub mod cypher;
 pub mod falkordb;
 pub mod graphml;
 pub mod html;
+pub mod html_py_compat;
 pub mod json;
 pub mod neo4j;
 pub mod obsidian;

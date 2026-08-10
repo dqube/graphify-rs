@@ -105,7 +105,7 @@ enum Commands {
         /// Export formats (comma-separated). Available: json,html,split-html,callflow-html,tree,graphml,cypher,svg,rdf,falkordb,wiki,obsidian,report. Default: json,report
         #[arg(long, value_delimiter = ',')]
         format: Vec<String>,
-        /// Maximum nodes in HTML visualization (default: 2000). Larger values may slow browser.
+        /// Maximum nodes in HTML visualization (default: 5000, 0 = unlimited). Larger values may slow browser.
         #[arg(long)]
         max_viz_nodes: Option<usize>,
         /// LLM backend to consult for ambiguous near-duplicate pairs (e.g. `anthropic`, `openai`).

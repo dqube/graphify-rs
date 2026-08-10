@@ -553,9 +553,17 @@ fn pick_winner<'a>(nodes: &'a [&'a GraphNode]) -> &'a GraphNode {
             false
         }
     };
+    // Lexicographic id is the third-tie-breaker so the result is stable
+    // regardless of HashMap iteration order (which `components()` uses).
+    // `min_by_key` returns the *last* element with the minimum key when
+    // multiple elements tie, so a pure `(has_suffix, id_len)` key was
+    // implicitly order-sensitive.
     nodes
         .iter()
-        .min_by_key(|n| (has_suffix(n) as u32, n.id.len()))
+        .min_by(|a, b| {
+            (has_suffix(a) as u32, a.id.len(), &a.id)
+                .cmp(&(has_suffix(b) as u32, b.id.len(), &b.id))
+        })
         .copied()
         .unwrap()
 }

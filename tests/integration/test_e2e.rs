@@ -30,7 +30,7 @@ fn run_pipeline(dir: &Path) -> (graphify_core::graph::KnowledgeGraph, std::path:
 
     // Export
     std::fs::create_dir_all(&output_dir).unwrap();
-    graphify_export::export_json(&graph, &output_dir).unwrap();
+    graphify_export::export_json(&graph, &output_dir, None).unwrap();
 
     (graph, output_dir)
 }
@@ -345,9 +345,11 @@ fn test_json_output_networkx_compatible() {
             "node missing 'label': {:?}",
             node
         );
+        // Python-compat schema: `file_type` (code/document/concept/…),
+        // `node_type` is dropped so both tools' `graph.json` matches.
         assert!(
-            node.get("node_type").is_some(),
-            "node missing 'node_type': {:?}",
+            node.get("file_type").is_some(),
+            "node missing 'file_type': {:?}",
             node
         );
     }
@@ -681,7 +683,7 @@ fn test_all_export_formats() {
     std::fs::create_dir_all(&output_dir).unwrap();
 
     // JSON
-    let p = graphify_export::export_json(&graph, &output_dir).unwrap();
+    let p = graphify_export::export_json(&graph, &output_dir, None).unwrap();
     assert!(p.exists(), "graph.json should exist");
 
     // HTML

@@ -7,6 +7,7 @@
 mod handlers;
 mod imports;
 mod treesitter_config;
+pub mod type_refs;
 
 pub use treesitter_config::TsConfig;
 

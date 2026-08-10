@@ -283,6 +283,19 @@ pub fn extract(paths: &[PathBuf]) -> ExtractionResult {
 
     resolve_cross_file_calls(&mut combined);
 
+    // Post-extraction: type-ref edges for Rust. Reads each `.rs` source
+    // once more (small overhead) and appends `references` edges with a
+    // `context` field matching Python's vocabulary (parameter_type,
+    // return_type, generic_arg, field).
+    let rust_sources: Vec<(&std::path::Path, Vec<u8>)> = paths
+        .iter()
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("rs"))
+        .filter_map(|p| std::fs::read(p).ok().map(|b| (p.as_path(), b)))
+        .collect();
+    if !rust_sources.is_empty() {
+        treesitter::type_refs::augment_with_rust_type_refs(&mut combined, &rust_sources);
+    }
+
     info!(
         "extraction complete: {} nodes, {} edges",
         combined.nodes.len(),

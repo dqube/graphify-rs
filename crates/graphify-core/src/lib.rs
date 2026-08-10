@@ -4,6 +4,7 @@ pub mod graph;
 pub mod id;
 pub mod manifests;
 pub mod model;
+pub mod py_compat;
 
 use std::collections::HashMap;
 

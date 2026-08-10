@@ -1356,7 +1356,7 @@ fn step_export(
     crate::cmd_update::record_root(output_dir, Path::new(root));
 
     if should_export("json") {
-        let json_path = graphify_export::export_json(graph, output_dir)?;
+        let json_path = graphify_export::export_json(graph, output_dir, Some(community_labels))?;
         info_print!(verb, "  Wrote {}", json_path.display().to_string().dimmed());
     }
 

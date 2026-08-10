@@ -51,6 +51,13 @@ impl std::fmt::Display for NodeType {
     }
 }
 
+fn default_node_type() -> NodeType {
+    // Python-compat graph.json omits `node_type` entirely (using `file_type`
+    // instead). When re-loading such a graph via `from_node_link_json`, we
+    // fall back to a File-typed node so the round-trip doesn't fail.
+    NodeType::File
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GraphNode {
     pub id: String,
@@ -58,6 +65,7 @@ pub struct GraphNode {
     pub source_file: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_location: Option<String>,
+    #[serde(default = "default_node_type")]
     pub node_type: NodeType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub community: Option<usize>,
