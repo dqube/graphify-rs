@@ -32,7 +32,12 @@ mod skill;
 #[command(
     name = "graphify-rs",
     version,
-    about = "AI-powered knowledge graph builder"
+    about = "AI-powered knowledge graph builder",
+    // The flat list below runs to 45 entries. Point people at the grouped
+    // view before they scroll it.
+    after_help = "Tip: `graphify-rs commands` lists these grouped by task, \
+                  with the flags you reach for most.\n\
+                  Getting started: graphify-rs build --no-llm --format json,report,html"
 )]
 struct Cli {
     /// Suppress non-essential output
@@ -428,6 +433,11 @@ enum Commands {
     },
     /// Initialize a graphify-rs.toml config file
     Init,
+    /// List every command grouped by task, with the flags you reach for most
+    // Named CommandList so the variant neither matches nor ends with the enum
+    // name (clippy::enum_variant_names); the user-facing name stays `commands`.
+    #[command(name = "commands")]
+    CommandList,
 }
 
 #[derive(Subcommand)]
@@ -1002,9 +1012,213 @@ async fn main() -> Result<()> {
         Commands::Init => {
             cmd_init()?;
         }
+        Commands::CommandList => {
+            cmd_commands();
+        }
     }
 
     Ok(())
+}
+
+/// Print every command grouped by the task it belongs to.
+///
+/// `--help` lists all 45 subcommands in one flat, alphabetically meaningless
+/// block, which is accurate but hard to scan and says nothing about which
+/// flags matter. This groups them by intent and shows the handful of flags
+/// worth knowing per command, so a newcomer can find the right one without
+/// opening the CLI reference.
+fn cmd_commands() {
+    // (command, one-line summary, notable flags)
+    type Row = (&'static str, &'static str, &'static str);
+    const GROUPS: &[(&str, &[Row])] = &[
+        (
+            "Build and refresh the graph",
+            &[
+                (
+                    "build",
+                    "Build the graph from a directory",
+                    "--no-llm  --format json,report,html  --code-only  --cluster-only",
+                ),
+                (
+                    "update <path>",
+                    "Re-extract code only, no LLM, no API cost",
+                    "--force  --no-cluster",
+                ),
+                ("watch <path>", "Rebuild automatically as files change", ""),
+                (
+                    "extract",
+                    "Run extraction only, emit the raw result",
+                    "--output",
+                ),
+            ],
+        ),
+        (
+            "Ask questions",
+            &[
+                (
+                    "query \"<question>\"",
+                    "Scoped subgraph answering a question",
+                    "--dfs  --budget N  --graph",
+                ),
+                (
+                    "explain \"<node>\"",
+                    "One node: metadata, community, neighbours",
+                    "--graph",
+                ),
+                (
+                    "path \"<A>\" \"<B>\"",
+                    "Shortest path between two nodes",
+                    "--graph",
+                ),
+                (
+                    "affected",
+                    "Which tests a source change impacts",
+                    "--depth N  --output json",
+                ),
+                ("stats", "Node/edge counts, density, top communities", ""),
+                (
+                    "diff <a> <b>",
+                    "Compare two graph snapshots",
+                    "--output json",
+                ),
+            ],
+        ),
+        (
+            "Render and export",
+            &[
+                (
+                    "export <format>",
+                    "Re-render an existing graph, no rebuild",
+                    "html, split-html, callflow-html, tree, svg, graphml,",
+                ),
+                (
+                    "",
+                    "",
+                    "cypher, rdf, obsidian, wiki, falkordb, neo4j  ·  --output",
+                ),
+                ("tree", "Collapsible D3 tree view", ""),
+                ("serve", "MCP server exposing the graph to agents", ""),
+            ],
+        ),
+        (
+            "Agent integration",
+            &[
+                (
+                    "install",
+                    "Install the graphify skill for an assistant",
+                    "--platform claude|codex|…",
+                ),
+                (
+                    "<platform> install",
+                    "Wire one platform into this project",
+                    "claude, codebuddy, codex, opencode, claw,",
+                ),
+                ("", "", "droid, trae, trae-cn, copilot, vscode"),
+                ("uninstall", "Remove integration from every platform", ""),
+                (
+                    "hook",
+                    "Git hook management",
+                    "install | uninstall | status | check | guard",
+                ),
+            ],
+        ),
+        (
+            "Corpus and sources",
+            &[
+                (
+                    "add <url>",
+                    "Fetch a URL into the corpus as markdown",
+                    "--dir",
+                ),
+                ("ingest <url>", "Ingest URL content into the graph", ""),
+                (
+                    "clone <repo>",
+                    "Clone a repository and build its graph",
+                    "--no-build",
+                ),
+            ],
+        ),
+        (
+            "Graph management",
+            &[
+                ("label", "Name communities with an LLM", "--graph"),
+                (
+                    "merge-graphs <a> <b>",
+                    "Merge graphs into one cross-repo graph",
+                    "--output",
+                ),
+                (
+                    "merge-chunks",
+                    "Merge chunk files from parallel subagents",
+                    "--output",
+                ),
+                (
+                    "merge-semantic",
+                    "Merge cached and fresh extraction output",
+                    "--cached  --new  --output",
+                ),
+                (
+                    "global",
+                    "Cross-project graph in ~/.graphify-rs/",
+                    "add | remove | list | path",
+                ),
+                (
+                    "save-result",
+                    "Record a Q&A outcome for the feedback loop",
+                    "--outcome useful|dead_end|corrected",
+                ),
+                (
+                    "reflect",
+                    "Aggregate saved outcomes into LESSONS.md",
+                    "--min-corroboration N",
+                ),
+            ],
+        ),
+        (
+            "Diagnostics and setup",
+            &[
+                ("init", "Create a graphify-rs.toml config file", ""),
+                ("diagnose", "Report environment and graph health", "--graph"),
+                ("cache-check", "Cache size, hit rate, staleness", "--output"),
+                ("provider", "Inspect and test LLM provider config", ""),
+                ("check-update", "Check whether a newer release exists", ""),
+                (
+                    "prs",
+                    "Graph-aware pull request dashboard",
+                    "--triage  --conflicts",
+                ),
+                ("benchmark", "Token efficiency benchmark", ""),
+                ("completions <shell>", "Generate shell completions", ""),
+            ],
+        ),
+    ];
+
+    println!("\n{}", "graphify-rs — commands by task".bold());
+    println!(
+        "{}\n",
+        "Run `graphify-rs <command> --help` for the full flag list.".dimmed()
+    );
+
+    for (heading, rows) in GROUPS {
+        println!("{}", heading.cyan().bold());
+        for (name, summary, flags) in *rows {
+            if name.is_empty() {
+                // Continuation line for a wrapped flag list.
+                println!("{:38}  {}", "", flags.dimmed());
+                continue;
+            }
+            println!("  {:36}{}", name.green(), summary);
+            if !flags.is_empty() {
+                println!("{:38}  {}", "", flags.dimmed());
+            }
+        }
+        println!();
+    }
+
+    println!(
+        "{}",
+        "Full reference: docs/CLI.md · Global flags: -q quiet, -v verbose, -j jobs".dimmed()
+    );
 }
 
 /// Query the knowledge graph
