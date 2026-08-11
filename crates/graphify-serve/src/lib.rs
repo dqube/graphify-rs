@@ -44,13 +44,20 @@ pub fn bfs(
     start: &[String],
     depth: usize,
 ) -> (Vec<String>, Vec<(String, String)>) {
+    // `visited` answers "seen already?"; `order` is what we return. Collecting
+    // the HashSet directly would hand back an arbitrary, run-to-run unstable
+    // order, which discards the one thing the traversal established: the seeds
+    // are the closest match, and everything after them is progressively less
+    // relevant. Callers truncate to a token budget, so that ordering decides
+    // what survives.
     let mut visited: HashSet<String> = HashSet::new();
+    let mut order: Vec<String> = Vec::new();
     let mut edges: Vec<(String, String)> = Vec::new();
     let mut queue: VecDeque<(String, usize)> = VecDeque::new();
 
     for s in start {
-        if graph.get_node(s).is_some() {
-            visited.insert(s.clone());
+        if graph.get_node(s).is_some() && visited.insert(s.clone()) {
+            order.push(s.clone());
             queue.push_back((s.clone(), 0));
         }
     }
@@ -63,15 +70,14 @@ pub fn bfs(
         for neighbor_id in graph.neighbor_ids(&current) {
             edges.push((current.clone(), neighbor_id.clone()));
 
-            if !visited.contains(&neighbor_id) {
-                visited.insert(neighbor_id.clone());
+            if visited.insert(neighbor_id.clone()) {
+                order.push(neighbor_id.clone());
                 queue.push_back((neighbor_id, current_depth + 1));
             }
         }
     }
 
-    let visited_vec: Vec<String> = visited.into_iter().collect();
-    (visited_vec, edges)
+    (order, edges)
 }
 
 /// DFS traversal from start nodes up to a maximum depth.
@@ -82,13 +88,15 @@ pub fn dfs(
     start: &[String],
     depth: usize,
 ) -> (Vec<String>, Vec<(String, String)>) {
+    // Discovery order is preserved for the same reason as in `bfs`.
     let mut visited: HashSet<String> = HashSet::new();
+    let mut order: Vec<String> = Vec::new();
     let mut edges: Vec<(String, String)> = Vec::new();
     let mut stack: Vec<(String, usize)> = Vec::new();
 
     for s in start {
-        if graph.get_node(s).is_some() {
-            visited.insert(s.clone());
+        if graph.get_node(s).is_some() && visited.insert(s.clone()) {
+            order.push(s.clone());
             stack.push((s.clone(), 0));
         }
     }
@@ -101,15 +109,14 @@ pub fn dfs(
         for neighbor_id in graph.neighbor_ids(&current) {
             edges.push((current.clone(), neighbor_id.clone()));
 
-            if !visited.contains(&neighbor_id) {
-                visited.insert(neighbor_id.clone());
+            if visited.insert(neighbor_id.clone()) {
+                order.push(neighbor_id.clone());
                 stack.push((neighbor_id, current_depth + 1));
             }
         }
     }
 
-    let visited_vec: Vec<String> = visited.into_iter().collect();
-    (visited_vec, edges)
+    (order, edges)
 }
 
 /// Convert a subgraph (set of nodes and edges) to a text representation
@@ -807,5 +814,69 @@ mod tests {
         assert!(result.is_some());
         let (path, _, _) = result.unwrap();
         assert_eq!(path.len(), 3, "should go through c, got path: {path:?}");
+    }
+}
+
+#[cfg(test)]
+mod traversal_order_tests {
+    use super::*;
+    use graphify_core::confidence::Confidence;
+    use graphify_core::model::{GraphEdge, GraphNode, NodeType};
+    use std::collections::HashMap;
+
+    fn node(id: &str) -> GraphNode {
+        GraphNode {
+            id: id.into(),
+            label: id.into(),
+            source_file: "t.rs".into(),
+            source_location: None,
+            node_type: NodeType::Function,
+            community: None,
+            extra: HashMap::new(),
+        }
+    }
+
+    fn edge(a: &str, b: &str) -> GraphEdge {
+        GraphEdge {
+            source: a.into(),
+            target: b.into(),
+            relation: "calls".into(),
+            confidence: Confidence::Extracted,
+            confidence_score: 1.0,
+            source_file: "t.rs".into(),
+            source_location: None,
+            weight: 1.0,
+            provenance: None,
+            extra: HashMap::new(),
+        }
+    }
+
+    /// The seed must come back first, and the result must be stable.
+    ///
+    /// Both traversals used to return `visited.into_iter().collect()` straight
+    /// off a HashSet, so the order was arbitrary and reshuffled per run. Since
+    /// callers truncate to a token budget, that silently discarded the nodes
+    /// that actually matched the question and kept whichever ones the hasher
+    /// happened to place first.
+    #[test]
+    fn traversal_returns_seed_first_and_is_stable() {
+        let mut g = KnowledgeGraph::new();
+        for id in ["seed", "a", "b", "c", "d", "e", "f", "g", "h"] {
+            g.add_node(node(id)).unwrap();
+        }
+        for id in ["a", "b", "c", "d", "e", "f", "g", "h"] {
+            g.add_edge(edge("seed", id)).unwrap();
+        }
+
+        let seeds = vec!["seed".to_string()];
+        for _ in 0..8 {
+            let (bfs_nodes, _) = bfs(&g, &seeds, 2);
+            assert_eq!(bfs_nodes[0], "seed", "BFS must yield the seed first");
+            let (dfs_nodes, _) = dfs(&g, &seeds, 2);
+            assert_eq!(dfs_nodes[0], "seed", "DFS must yield the seed first");
+            // Re-running must give the same order, not a fresh hash shuffle.
+            let (again, _) = bfs(&g, &seeds, 2);
+            assert_eq!(bfs_nodes, again, "BFS order must be deterministic");
+        }
     }
 }

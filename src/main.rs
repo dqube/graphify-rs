@@ -127,13 +127,21 @@ enum Commands {
     },
     /// Query the knowledge graph
     Query {
+        /// Question to answer; matched against node labels, ids, and files
         question: String,
+        /// Traverse depth-first instead of breadth-first
         #[arg(long)]
         dfs: bool,
+        /// Cap output at roughly this many tokens
         #[arg(long, default_value_t = 2000)]
         budget: usize,
+        /// Path to graph.json (default: graphify-rs-out/graph.json)
         #[arg(long)]
         graph: Option<String>,
+        /// Only show edges with this context (repeatable), e.g.
+        /// `--context call --context parameter_type`
+        #[arg(long = "context", value_name = "CONTEXT")]
+        contexts: Vec<String>,
     },
     /// Name graph communities with an LLM
     Label {
@@ -670,6 +678,7 @@ async fn main() -> Result<()> {
             dfs,
             budget,
             graph,
+            contexts,
         } => {
             let graph_path = graph.unwrap_or_else(|| {
                 paths::resolve_default_output(Path::new("."))
@@ -677,7 +686,7 @@ async fn main() -> Result<()> {
                     .to_string_lossy()
                     .to_string()
             });
-            cmd_query(&question, dfs, budget, &graph_path)?;
+            cmd_query(&question, dfs, budget, &graph_path, &contexts)?;
         }
         Commands::Label { graph } => {
             let graph_path = graph.unwrap_or_else(default_graph_path);
@@ -1222,7 +1231,15 @@ fn cmd_commands() {
 }
 
 /// Query the knowledge graph
-fn cmd_query(question: &str, use_dfs: bool, budget: usize, graph_path: &str) -> Result<()> {
+fn cmd_query(
+    question: &str,
+    use_dfs: bool,
+    budget: usize,
+    graph_path: &str,
+    contexts: &[String],
+) -> Result<()> {
+    const DEPTH: usize = 2;
+
     let gp = PathBuf::from(graph_path);
     if !gp.exists() {
         anyhow::bail!("Graph file not found: {}", gp.display());
@@ -1247,13 +1264,106 @@ fn cmd_query(question: &str, use_dfs: bool, budget: usize, graph_path: &str) -> 
     }
 
     let start: Vec<String> = scored.iter().take(5).map(|(_, id)| id.clone()).collect();
-    let (nodes, edges) = if use_dfs {
-        graphify_serve::dfs(&graph, &start, 2)
+    // The traversal's own edge list is discarded: it records only the edges
+    // walked to reach each node, so a pair of results connected by a second
+    // relation would never show it. Rendering every edge between the visited
+    // nodes reports the subgraph as it actually is.
+    let (nodes, _walked) = if use_dfs {
+        graphify_serve::dfs(&graph, &start, DEPTH)
     } else {
-        graphify_serve::bfs(&graph, &start, 2)
+        graphify_serve::bfs(&graph, &start, DEPTH)
     };
-    let text = graphify_serve::subgraph_to_text(&graph, &nodes, &edges, budget);
-    println!("{text}");
+
+    let seed_labels: Vec<String> = start
+        .iter()
+        .map(|id| {
+            graph
+                .get_node(id)
+                .map_or_else(|| id.clone(), |n| format!("'{}'", n.label))
+        })
+        .collect();
+    let mode = if use_dfs { "DFS" } else { "BFS" };
+    let mut header = format!(
+        "Traversal: {mode} depth={DEPTH} | Start: [{}]",
+        seed_labels.join(", ")
+    );
+    if !contexts.is_empty() {
+        header.push_str(&format!(" | Context: {}", contexts.join(", ")));
+    }
+    println!("{header} | {} nodes found\n", nodes.len());
+
+    // Nodes come back in traversal order — seeds first, then progressively
+    // more distant neighbours — so truncating at the budget keeps the most
+    // relevant ones.
+    //
+    // Nodes are capped below the full budget so the edges always get a share.
+    // A broad question can traverse hundreds of nodes, and letting them
+    // consume everything leaves the answer a bare file listing with none of
+    // the relationships that make it a graph query rather than a search.
+    let char_budget = budget * 4;
+    let node_budget = char_budget * 3 / 5;
+    let mut out = String::new();
+    let mut shown = 0usize;
+    for id in &nodes {
+        if out.len() >= node_budget {
+            break;
+        }
+        if let Some(n) = graph.get_node(id) {
+            out.push_str(&format!(
+                "NODE {} [src={} loc={} community={}]\n",
+                n.label,
+                n.source_file,
+                n.source_location.as_deref().unwrap_or(""),
+                n.community.map_or_else(String::new, |c| c.to_string()),
+            ));
+            shown += 1;
+        }
+    }
+
+    // Edge lines carry the relation and its context, which is what
+    // `--context` filters on.
+    let wanted: HashSet<&str> = contexts.iter().map(String::as_str).collect();
+    let in_scope: HashSet<&str> = nodes.iter().map(String::as_str).collect();
+    let mut seen: HashSet<(&str, &str, &str)> = HashSet::new();
+    for (src, tgt, edge) in graph.edges_with_endpoints() {
+        if out.len() >= char_budget {
+            break;
+        }
+        if !in_scope.contains(src) || !in_scope.contains(tgt) {
+            continue;
+        }
+        let ctx = edge
+            .extra
+            .get("context")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if !wanted.is_empty() && !wanted.contains(ctx) {
+            continue;
+        }
+        if !seen.insert((src, tgt, edge.relation.as_str())) {
+            continue;
+        }
+        let sl = graph.get_node(src).map_or(src, |n| n.label.as_str());
+        let tl = graph.get_node(tgt).map_or(tgt, |n| n.label.as_str());
+        let ctx_part = if ctx.is_empty() {
+            String::new()
+        } else {
+            format!(" context={ctx}")
+        };
+        out.push_str(&format!(
+            "EDGE {sl} --{} [{:?}{ctx_part}]--> {tl}\n",
+            edge.relation, edge.confidence
+        ));
+    }
+
+    print!("{out}");
+    if shown < nodes.len() {
+        println!(
+            "... (truncated — {} more nodes cut by the ~{budget}-token budget. \
+             Raise it with --budget, or narrow with --context)",
+            nodes.len() - shown
+        );
+    }
 
     Ok(())
 }
