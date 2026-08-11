@@ -98,17 +98,42 @@ const SKILL_REGISTRATION: &str = r#"
 When the user types `/graphify-rs`, invoke the Skill tool with `skill: "graphify-rs"` before doing anything else.
 "#;
 
-fn graph_md_section(output_dir: &str) -> String {
-    format!(
-        r"## graphify-rs
+/// Render the output directory the way it should read inside a committed
+/// instructions file: relative to the project root whenever it lives there.
+///
+/// `resolve_default_output` canonicalizes, so it hands back something like
+/// `/Users/me/code/proj/graphify-rs-out`. Writing that into CLAUDE.md bakes
+/// one machine's home directory into a file the whole team reads, and the
+/// paths stop resolving for everyone else.
+fn display_output_dir(project_root: &Path, output_dir: &str) -> String {
+    let root = project_root
+        .canonicalize()
+        .unwrap_or_else(|_| project_root.to_path_buf());
+    Path::new(output_dir)
+        .strip_prefix(&root)
+        .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|_| output_dir.to_string())
+}
 
-This project has a graphify-rs knowledge graph at {output_dir}/.
+/// The instructions block written into CLAUDE.md / AGENTS.md and friends.
+///
+/// Ordering is the point. `query`/`path`/`explain` return a subgraph scoped to
+/// the question, while GRAPH_REPORT.md is the whole map — 110 KB in this
+/// repository. Naming the report first, as this block used to, sends agents to
+/// the most expensive option before the cheap one.
+fn graph_md_section(project_root: &Path, output_dir: &str) -> String {
+    let dir = display_output_dir(project_root, output_dir);
+    format!(
+        r#"## graphify-rs
+
+This project has a graphify-rs knowledge graph at {dir}/ with god nodes, community structure, and cross-file relationships.
 
 Rules:
-- Before answering architecture or codebase questions, read {output_dir}/GRAPH_REPORT.md for god nodes and community structure
-- If {output_dir}/wiki/index.md exists, navigate it instead of reading raw files
-- After modifying code files in this session, run `graphify-rs build --path . --output {output_dir} --no-llm` to keep the graph current (fast, AST-only, ~2-5s; skips rebuild automatically if nothing changed)
-"
+- For codebase questions, first run `graphify-rs query "<question>"` when {dir}/graph.json exists. Use `graphify-rs path "<A>" "<B>"` for relationships and `graphify-rs explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If {dir}/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read {dir}/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify-rs update .` to keep the graph current (AST-only, no API cost).
+"#
     )
 }
 
@@ -199,7 +224,11 @@ pub fn claude_install(project_root: &Path) -> Result<()> {
         .to_string_lossy()
         .to_string();
     let claude_md = project_root.join("CLAUDE.md");
-    append_section(&claude_md, &graph_md_section(&output_dir), CLAUDE_MD_MARKER)?;
+    append_section(
+        &claude_md,
+        &graph_md_section(project_root, &output_dir),
+        CLAUDE_MD_MARKER,
+    )?;
     println!("  Updated {}", claude_md.display());
 
     let settings_path = project_root.join(".claude/settings.json");
@@ -230,7 +259,11 @@ pub fn codebuddy_install(project_root: &Path) -> Result<()> {
         .to_string_lossy()
         .to_string();
     let agents_md = project_root.join("AGENTS.md");
-    append_section(&agents_md, &graph_md_section(&output_dir), AGENTS_MD_MARKER)?;
+    append_section(
+        &agents_md,
+        &graph_md_section(project_root, &output_dir),
+        AGENTS_MD_MARKER,
+    )?;
     println!("  Updated {}", agents_md.display());
 
     let settings_path = project_root.join(".codebuddy/settings.json");
@@ -261,7 +294,11 @@ pub fn codex_install(project_root: &Path) -> Result<()> {
         .to_string_lossy()
         .to_string();
     let agents_md = project_root.join("AGENTS.md");
-    append_section(&agents_md, &graph_md_section(&output_dir), AGENTS_MD_MARKER)?;
+    append_section(
+        &agents_md,
+        &graph_md_section(project_root, &output_dir),
+        AGENTS_MD_MARKER,
+    )?;
     println!("  Updated {}", agents_md.display());
 
     let hooks_path = project_root.join(".codex/hooks.json");
@@ -294,7 +331,11 @@ pub fn opencode_install(project_root: &Path) -> Result<()> {
         .to_string_lossy()
         .to_string();
     let agents_md = project_root.join("AGENTS.md");
-    append_section(&agents_md, &graph_md_section(&output_dir), AGENTS_MD_MARKER)?;
+    append_section(
+        &agents_md,
+        &graph_md_section(project_root, &output_dir),
+        AGENTS_MD_MARKER,
+    )?;
     println!("  Updated {}", agents_md.display());
 
     let plugin_path = project_root.join(".opencode/plugins/graphify-rs.js");
@@ -339,7 +380,7 @@ pub fn copilot_install(project_root: &Path) -> Result<()> {
     let instructions = project_root.join(".github/copilot-instructions.md");
     append_section(
         &instructions,
-        &graph_md_section(&output_dir),
+        &graph_md_section(project_root, &output_dir),
         COPILOT_MD_MARKER,
     )?;
     println!("  Updated {}", instructions.display());
@@ -368,7 +409,7 @@ pub fn vscode_install(project_root: &Path) -> Result<()> {
     let instructions = project_root.join(VSCODE_INSTRUCTIONS_FILE);
     append_section(
         &instructions,
-        &graph_md_section(&output_dir),
+        &graph_md_section(project_root, &output_dir),
         VSCODE_MD_MARKER,
     )?;
     println!("  Updated {}", instructions.display());
@@ -406,7 +447,11 @@ pub fn generic_platform_install(project_root: &Path, platform: &str) -> Result<(
         .to_string_lossy()
         .to_string();
     let agents_md = project_root.join("AGENTS.md");
-    append_section(&agents_md, &graph_md_section(&output_dir), AGENTS_MD_MARKER)?;
+    append_section(
+        &agents_md,
+        &graph_md_section(project_root, &output_dir),
+        AGENTS_MD_MARKER,
+    )?;
     println!("  Updated {}", agents_md.display());
     println!("\n  {platform} integration installed.");
     Ok(())
