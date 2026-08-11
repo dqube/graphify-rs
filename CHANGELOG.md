@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-08-10
+
+No functional change: the binary is identical to 0.8.3. Released so the
+packaged documentation and the tag history stay in step.
+
+### Added
+
+- **`.graphifyignore` in this repository** — excludes `docs`, `tests`, and `graphify-out`. Extraction had been scanning 295 files / ~1.48M words, and 1,115 of 4,564 nodes came from `graphify-out/`, the Python graphify's output directory, dated backup folders included; it is not in `SKIP_DIRS` the way `graphify-rs-out/` is, so every build re-ingested a sibling tool's artifacts. The corpus is now 137 files / ~179K words, with `src/` and `crates/` still contributing 3,155 nodes.
+- **`.graphifyignore` documentation** — the CLI reference previously mentioned the file only in passing. It now documents the glob syntax, the segment-matching rule that makes a bare directory name match at any depth, and the set of always-skipped directories.
+
 ## [0.8.3] - 2026-08-10
 
 ### Added
