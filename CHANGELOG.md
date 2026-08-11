@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-08-11
+
+Behavioural fixes across `query`, the Neo4j exports, and the instructions
+block written into CLAUDE.md / AGENTS.md.
+
+**Breaking (Neo4j only).** The live push previously wrote every node as
+`:GraphNode` and every edge as `:GRAPH_REL`. It now writes typed labels and
+relationship types. Existing pushed databases will not match the new shape —
+wipe and re-push.
+
+### Fixed
+
+- **`query` returned near-random results.** `bfs`/`dfs` ended with `visited.into_iter().collect()` on a `HashSet`, so the node list came back in arbitrary, run-to-run unstable order. Since callers truncate to a token budget, the nodes that matched the question were as likely to be discarded as kept: "how does html export work" answered with `score_nodes()`, `file_stem()` and `git_short_commit()`. Both traversals now return discovery order, seeds first. The MCP query path shares them and was affected too.
+- **`query` seeded on imports rather than definitions.** A re-export line such as `pub use html::export_html` repeats the query terms and outranked the `export_html()` it points at. Label weight is now divided by the square root of its token count, so a sprawling label cannot win on volume, and modules/packages/namespaces carry a 0.35 relevance multiplier against a definition's 1.0. Seeds now match the Python CLI's.
+- **Neo4j exports were untyped and disagreed with each other.** The live push flattened everything to `:GraphNode` / `:GRAPH_REL {relation: …}`, forcing property scans where Python allows `MATCH (a:Code)-[:CALLS]->(b)`, while graphify-rs's own `.cypher` file export already emitted typed labels. The push now groups rows by node type and relationship type — one `UNWIND` per group, since Cypher cannot parameterise either — and keeps `:GraphNode` alongside the type label so the id constraint and edge `MATCH` stay type-agnostic.
+- **Neo4j relation vocabulary did not match Python.** Both Cypher paths now translate through `py_compat`, emitting `CONTAINS` and `IMPORTS_FROM` rather than the internal `DEFINES` and `IMPORTS`.
+- **`graph.cypher` could not be replayed.** It emitted 11,126 `CREATE` and no `MERGE`, so loading it twice doubled the graph while the live push was idempotent. It now uses `MERGE`.
+- **The agent instructions block was worse than Python's.** It interpolated the canonicalized output directory, committing one machine's home path into a shared file; it never mentioned `query`, `path` or `explain`, sending agents to the 110 KB `GRAPH_REPORT.md` first; and it recommended a long `build` invocation predating the `update` command.
+
+### Added
+
+- **`--context` on `query`** (repeatable), matching the Python CLI. Edge contexts (`parameter_type`, `return_type`, `generic_arg`, `field`) already existed in the graph but were unreachable from the CLI.
+- **Python-shaped `query` output** — a `Traversal: BFS depth=2 | Start: [...] | N nodes found` header followed by `NODE` and `EDGE` lines. Nodes are capped at 60% of the budget so relationships always render; previously a broad question spent the whole budget on nodes and emitted no edges at all.
+- **Help text on `query`'s flags**, which were previously all blank.
+- **`node_type` in `graph.json`** — additive to Python's field set, which ignores the key. Without it every node reloaded as the default type, so `query` reported "type: File" for functions and seed ranking could not distinguish a definition from an import of it.
+
 ## [0.8.4] - 2026-08-10
 
 No functional change: the binary is identical to 0.8.3. Released so the
