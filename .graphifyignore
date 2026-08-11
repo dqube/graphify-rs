@@ -1,0 +1,18 @@
+# Paths excluded from graph extraction.
+#
+# Glob patterns, one per line; `#` starts a comment. A pattern without a `/`
+# also matches any single path segment, so a bare directory name excludes that
+# directory wherever it appears.
+
+# Prose, not the code the graph describes. docs/CLI.md alone is ~52 KB of
+# command reference, which crowds out real source in the corpus.
+docs
+
+# Test fixtures and integration harnesses. Their symbols mirror the code under
+# test, so indexing them doubles up entities without adding structure.
+tests
+
+# Generated graph output. graphify-rs already skips its own graphify-rs-out/,
+# but the Python graphify writes to graphify-out/ — including dated backup
+# folders — and that was being re-ingested on every build.
+graphify-out

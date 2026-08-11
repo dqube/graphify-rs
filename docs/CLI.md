@@ -28,6 +28,7 @@
   - [benchmark](#graphify-rs-benchmark) — Token efficiency
   - [affected](#graphify-rs-affected) — Test impact analysis
 - [Configuration](#configuration-graphify-rstoml)
+- [Excluding files (`.graphifyignore`)](#excluding-files-graphifyignore)
 - [Agent Integration](#agent-integration)
 
 ## Installation
@@ -1033,6 +1034,47 @@ graphify-rs save-result \
   --answer "Uses PostgreSQL with 12 tables..." \
   --memory-dir my-graph/memory
 ```
+
+---
+
+## Excluding files (`.graphifyignore`)
+
+Put a `.graphifyignore` at the project root to keep paths out of extraction.
+Every command that scans files honours it.
+
+```
+# Glob patterns, one per line. `#` starts a comment; blank lines are skipped.
+
+docs             # prose rather than code
+tests            # fixtures that mirror the code under test
+graphify-out     # the Python graphify's output directory
+*.min.js         # generated bundles
+vendor/*.go      # a path-scoped pattern
+```
+
+**Matching.** Each pattern is a glob, checked against the path relative to the
+project root. A pattern containing no `/` is *also* matched against the file
+name and against **each path segment** — so a bare `docs` excludes `docs/` at
+any depth, while `docs/*.md` only excludes markdown directly inside a
+top-level `docs/`.
+
+Some directories are always skipped without needing an entry: `venv`,
+`.venv`, `env`, `.env`, `node_modules`, `__pycache__`, `.git`, `dist`,
+`build`, `target`, `out`, `site-packages`, `lib64`, `.pytest_cache`,
+`.mypy_cache`, `.ruff_cache`, `.tox`, `.eggs`, and graphify-rs's own
+`graphify-rs-out`.
+
+**Why it matters.** Extraction cost and graph quality both scale with the
+corpus. Adding the three-line ignore file in this repository took it from 295
+files / ~1.48M words to 137 files / ~179K words, and removed 1,115 nodes that
+were nothing but a sibling tool's generated output being re-ingested.
+
+```bash
+graphify-rs build --no-llm      # reports "Found N files … · ~N words"
+```
+
+Compare that line before and after editing the file to confirm a pattern
+took effect.
 
 ---
 
