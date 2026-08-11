@@ -705,8 +705,9 @@ fn test_all_export_formats() {
     assert!(p.exists(), "cypher.txt should exist");
     let cypher = std::fs::read_to_string(&p).unwrap();
     assert!(
-        cypher.contains("CREATE"),
-        "should contain CREATE statements"
+        cypher.contains("MERGE"),
+        "should contain MERGE statements, so replaying the file does not \
+         duplicate the graph"
     );
 
     // SVG

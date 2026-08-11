@@ -6,6 +6,22 @@
 use std::collections::HashMap;
 
 use graphify_core::graph::KnowledgeGraph;
+use graphify_core::model::{GraphNode, NodeType};
+
+/// Relevance multiplier for a node, by what it represents.
+///
+/// A question is nearly always about a definition. Imports and re-export lines
+/// are surfaced as `Module` nodes whose labels repeat the very identifiers being
+/// asked about (`pub use html::export_html`), so without a penalty they crowd
+/// out the definitions and the traversal seeds on aliases. Files sit in between:
+/// a legitimate answer for "where does X live", but weaker than the symbol.
+fn kind_weight(node: &GraphNode) -> f64 {
+    match node.node_type {
+        NodeType::Module | NodeType::Package | NodeType::Namespace => 0.35,
+        NodeType::File => 0.7,
+        _ => 1.0,
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Tokenizer
@@ -84,11 +100,20 @@ impl SearchIndex {
             };
             let degree = graph.degree(&node_id) as f64;
             let degree_boost = degree.ln_1p() * 0.1;
+            let kind_weight = kind_weight(node);
+
+            // A label's tokens are diluted by how many there are. Without this,
+            // an import line like `pub use html::export_html` carries both
+            // "html" and "export" plus a second "html", and outranks the
+            // `export_html()` it merely re-exports — the question gets answered
+            // with a pointer instead of the definition.
+            let label_tokens = tokenize(&node.label).len().max(1) as f64;
+            let label_base = 2.0 / label_tokens.sqrt();
 
             // Helper: insert tokens with a given base weight.
             let mut insert = |text: &str, base: f64| {
                 for tok in tokenize(text) {
-                    let weight = base + degree_boost;
+                    let weight = (base + degree_boost) * kind_weight;
                     index
                         .entry(tok)
                         .or_default()
@@ -96,7 +121,7 @@ impl SearchIndex {
                 }
             };
 
-            insert(&node.label, 2.0);
+            insert(&node.label, label_base);
             insert(&node.id, 1.0);
             insert(&node.source_file, 0.5);
         }
@@ -335,10 +360,19 @@ mod tests {
             weights.len() >= 2,
             "should have label and id entries for 'service'"
         );
+        // The invariant is the ranking — label beats id beats source_file —
+        // not a fixed magnitude. Label weight is divided by sqrt(token count)
+        // so a sprawling label cannot win on volume, which means a two-token
+        // label lands near 1.41 rather than the flat 2.0 it used to score.
+        let best = weights.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let worst = weights.iter().cloned().fold(f64::INFINITY, f64::min);
         assert!(
-            weights.iter().any(|w| *w >= 2.0),
-            "at least one weight >= 2.0 (label), got {:?}",
-            weights
+            best > worst,
+            "label entry should outweigh the id entry, got {weights:?}"
+        );
+        assert!(
+            best > 1.0,
+            "label entry should outweigh the id base of 1.0, got {weights:?}"
         );
     }
 

@@ -124,6 +124,15 @@ pub fn python_node(
     obj.insert("_origin".into(), Value::String("ast".into()));
     obj.insert("file_type".into(), Value::String(file_type_for(node)));
     obj.insert("norm_label".into(), Value::String(norm_label(&node.label)));
+    // Additive to Python's field set rather than a divergence from it: Python
+    // consumers ignore the key, while dropping it costs us real behaviour.
+    // Without it every node reloads as the `NodeType` default, so `query`
+    // reported "type: File" for functions and structs alike, and seed ranking
+    // had no way to prefer a definition over an import that re-exports it.
+    obj.insert(
+        "node_type".into(),
+        serde_json::to_value(&node.node_type).unwrap_or(Value::Null),
+    );
 
     // Pass through extra entries that don't conflict with the fields above.
     // `file_type` already handled; skip `node_type` if it leaked into extra.
@@ -341,7 +350,11 @@ mod tests {
         ] {
             assert!(obj.contains_key(k), "missing key {k}");
         }
-        assert!(!obj.contains_key("node_type"), "node_type must be dropped");
+        // `node_type` is emitted on top of Python's field set rather than in
+        // place of any of it. Dropping it made every node reload as the
+        // default type, which cost `query` its type display and left seed
+        // ranking unable to tell a definition from an import of it.
+        assert_eq!(obj["node_type"], Value::String("file".into()));
         assert_eq!(obj["_origin"], Value::String("ast".into()));
         assert_eq!(obj["file_type"], Value::String("code".into()));
         assert_eq!(obj["source_file"], Value::String("src/foo.rs".into()));

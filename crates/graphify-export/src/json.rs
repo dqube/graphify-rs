@@ -110,7 +110,9 @@ mod tests {
         assert_eq!(n["_origin"], serde_json::Value::String("ast".into()));
         assert!(n.get("file_type").is_some());
         assert!(n.get("norm_label").is_some());
-        // node_type is dropped.
-        assert!(n.get("node_type").is_none());
+        // node_type is additive to Python's field set: Python consumers ignore
+        // the key, while keeping it preserves the type across a reload, which
+        // `query` and seed ranking both depend on.
+        assert!(n.get("node_type").is_some());
     }
 }

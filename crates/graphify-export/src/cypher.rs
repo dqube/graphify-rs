@@ -18,29 +18,32 @@ pub fn export_cypher(graph: &KnowledgeGraph, output_dir: &Path) -> anyhow::Resul
     for node in graph.nodes() {
         let var = var_names.get(&node.id).map(|s| s.as_str()).unwrap_or("n");
         let node_type_label = format!("{}", node.node_type);
+        // MERGE rather than CREATE so the file can be replayed. With CREATE,
+        // loading it twice silently doubles the graph, and the live push is
+        // already idempotent — the two paths should not disagree about that.
         write!(
             cypher,
-            "CREATE ({}:{} {{id: '{}', label: '{}', source_file: '{}'",
-            var,
-            node_type_label,
+            "MERGE ({var}:{node_type_label} {{id: '{}'}}) SET {var}.label = '{}', {var}.source_file = '{}'",
             cypher_escape(&node.id),
             cypher_escape(&node.label),
             cypher_escape(&node.source_file),
         )?;
         if let Some(loc) = &node.source_location {
-            write!(cypher, ", source_location: '{}'", cypher_escape(loc))?;
+            write!(cypher, ", {var}.source_location = '{}'", cypher_escape(loc))?;
         }
         if let Some(c) = node.community {
-            write!(cypher, ", community: {c}")?;
+            write!(cypher, ", {var}.community = {c}")?;
         }
-        writeln!(cypher, "}});")?;
+        writeln!(cypher, ";")?;
     }
 
     writeln!(cypher)?;
 
     for edge in graph.edges() {
-        let rel_type = edge
-            .relation
+        // Translated first so the relationship types match the Python export's
+        // vocabulary (CONTAINS / IMPORTS_FROM) rather than the internal names.
+        let relation = graphify_core::py_compat::translate_relation(&edge.relation);
+        let rel_type = relation
             .to_uppercase()
             .replace(|c: char| !c.is_ascii_alphanumeric() && c != '_', "_");
         let src_var = var_names
@@ -53,10 +56,10 @@ pub fn export_cypher(graph: &KnowledgeGraph, output_dir: &Path) -> anyhow::Resul
             .unwrap_or("n");
         writeln!(
             cypher,
-            "CREATE ({src})-[:{rel} {{relation: '{relation}', confidence: '{confidence}', confidence_score: {score:.2}, source_file: '{file}', weight: {weight:.2}}}]->({tgt});",
+            "MERGE ({src})-[:{rel} {{relation: '{relation}', confidence: '{confidence}', confidence_score: {score:.2}, source_file: '{file}', weight: {weight:.2}}}]->({tgt});",
             src = src_var,
             rel = rel_type,
-            relation = cypher_escape(&edge.relation),
+            relation = cypher_escape(relation),
             confidence = edge.confidence,
             score = edge.confidence_score,
             file = cypher_escape(&edge.source_file),
@@ -174,7 +177,10 @@ mod tests {
         assert!(path.exists());
 
         let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("CREATE ("));
+        // MERGE, not CREATE: the file is meant to be replayable against a
+        // database without doubling the graph on the second run.
+        assert!(content.contains("MERGE ("));
+        assert!(!content.contains("CREATE ("));
         assert!(content.contains("CALLS"));
         assert!(content.contains("MyClass"));
     }
