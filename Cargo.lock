@@ -769,7 +769,7 @@ dependencies = [
 
 [[package]]
 name = "graphify-analyze"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "graphify-core",
  "petgraph",
@@ -781,7 +781,7 @@ dependencies = [
 
 [[package]]
 name = "graphify-benchmark"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "graphify-core",
  "serde",
@@ -793,7 +793,7 @@ dependencies = [
 
 [[package]]
 name = "graphify-build"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "graphify-core",
  "rusqlite",
@@ -805,7 +805,7 @@ dependencies = [
 
 [[package]]
 name = "graphify-cache"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -817,7 +817,7 @@ dependencies = [
 
 [[package]]
 name = "graphify-cluster"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "anyhow",
  "graphify-cache",
@@ -836,7 +836,7 @@ dependencies = [
 
 [[package]]
 name = "graphify-core"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "petgraph",
  "serde",
@@ -847,7 +847,7 @@ dependencies = [
 
 [[package]]
 name = "graphify-detect"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "globset",
  "graphify-cache",
@@ -865,7 +865,7 @@ dependencies = [
 
 [[package]]
 name = "graphify-export"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "anyhow",
  "graphify-core",
@@ -880,7 +880,7 @@ dependencies = [
 
 [[package]]
 name = "graphify-extract"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "anyhow",
  "dirs",
@@ -912,7 +912,7 @@ dependencies = [
 
 [[package]]
 name = "graphify-hooks"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "graphify-core",
  "tempfile",
@@ -922,7 +922,7 @@ dependencies = [
 
 [[package]]
 name = "graphify-ingest"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "anyhow",
  "graphify-core",
@@ -940,7 +940,7 @@ dependencies = [
 
 [[package]]
 name = "graphify-media"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "anyhow",
  "graphify-cache",
@@ -954,7 +954,7 @@ dependencies = [
 
 [[package]]
 name = "graphify-rs"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -993,7 +993,7 @@ dependencies = [
 
 [[package]]
 name = "graphify-security"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "thiserror 2.0.18",
  "tracing",
@@ -1002,7 +1002,7 @@ dependencies = [
 
 [[package]]
 name = "graphify-serve"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "graphify-analyze",
  "graphify-core",
@@ -1016,7 +1016,7 @@ dependencies = [
 
 [[package]]
 name = "graphify-watch"
-version = "0.8.2"
+version = "0.8.3"
 dependencies = [
  "graphify-analyze",
  "graphify-build",

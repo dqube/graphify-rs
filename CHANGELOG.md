@@ -7,7 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-08-10
+
 ### Added
+
+- **Prebuilt binary installers** — `install.sh` (macOS/Linux) and `install.ps1` (Windows) download a release binary from GitHub, so installing no longer requires a Rust toolchain. Both detect the platform, resolve the latest release, verify the download against the published `SHA256SUMS`, and install to `~/.local/bin` or `%LOCALAPPDATA%\graphify-rs\bin` (Windows also updates the user `PATH`). Overridable via `GRAPHIFY_VERSION`, `GRAPHIFY_INSTALL_DIR`, `GRAPHIFY_REPO`, and `GRAPHIFY_BASE_URL` (the last for mirrors and offline installs). A `Release` workflow builds five targets on tag push: macOS arm64/x64, Linux x64/arm64, and Windows x64.
+- **`graphify-rs commands`** — task-grouped command reference. `--help` lists all 45 subcommands flat; this groups them into build/refresh, ask, render, agent integration, corpus, graph management, and diagnostics, with the notable flags per command.
+
+### Fixed
+
+- **`GRAPHIFY_WHISPER_CMD` on Windows** — the custom transcriber was always dispatched through `sh -c` with the command interpolated into the shell string. On Windows the backslashes in a native path were consumed as shell escapes, so `C:\Users\me\whisper.bat` became `C:Usersmewhisper.bat` and reported a "command not found" pointing at a path the user never wrote. The invocation now goes through `cmd /C` on Windows and keeps `sh -c` elsewhere, with the media path passed as a real argument so separators survive on both.
+- **Documented output location** — the README pointed at `~/.graphify-rs/<project>-<hash>/`, but builds write to `./graphify-rs-out/`; `~/.graphify-rs/` holds the separate cross-project graph managed by `global`. Both docs also told readers to open `graph.html` without mentioning that `build` defaults to `json,report` and the visualization requires `--format …,html`.
+
+### Removed
+
+- **Chinese translations** — `README_CN.md` and `docs/CLI_CN.md` had drifted from the English docs and carried the corrected errors above.
+
+### Added (accumulated since the 0.8.2 entry below)
 
 - **15 new language extractors (22 → 37 languages)** — closes the language-coverage gap with the Python original. New regex-based extractors: CUDA (`.cu`/`.cuh`, incl. `__global__`/`__device__` kernels), Metal (`.metal`, shader entry points), Svelte (`.svelte`, via `<script>` block extraction), Astro (`.astro`, via frontmatter fence extraction), Groovy (`.groovy`/`.gradle`), SystemVerilog (`.v`/`.sv`/`.svh`), SQL (`.sql`, tables/views/routines), Fortran (`.f`/`.f90`/`.f95`/`.f03`/`.f08`), Pascal/Delphi (`.pas`/`.pp`/`.dpr`/`.dpk`/`.lpr`), Salesforce Apex (`.cls`/`.trigger`, incl. trigger→sObject edges), Terraform/HCL (`.tf`/`.tfvars`/`.hcl`), Bash/Shell (`.sh`/`.bash`), JSON (`.json`, top-level keys), .NET project files (`.sln`/`.csproj`/`.fsproj`/`.vbproj`/`.xaml`/`.razor`/`.cshtml`, package/project references and code-behind links), DM/BYOND (`.dm`/`.dme`/`.dmm`, type paths and procs).
 - **Shell-specific call inference** — Bash functions are invoked by bare name, so the shell extractor matches whole-word invocations instead of the `name(` pattern used by other languages.
